@@ -33,4 +33,16 @@ class PrefsStore(context: Context) {
     var autoDubEnabled: Boolean
         get() = prefs.getBoolean("auto_dub_enabled", true)
         set(value) = prefs.edit().putBoolean("auto_dub_enabled", value).apply()
+
+    var isMutedSubOnly: Boolean
+        get() = prefs.getBoolean("is_muted_sub_only", false)
+        set(value) = prefs.edit().putBoolean("is_muted_sub_only", value).apply()
+
+    var subtitleFontSizeSp: Float
+        get() = prefs.getFloat("subtitle_font_size_sp", 18f).coerceIn(12f, 34f)
+        set(value) = prefs.edit().putFloat("subtitle_font_size_sp", value.coerceIn(12f, 34f)).apply()
+
+    var overlayBrightness: Float
+        get() = prefs.getFloat("overlay_brightness", 0.85f).coerceIn(0.2f, 1.0f)
+        set(value) = prefs.edit().putFloat("overlay_brightness", value.coerceIn(0.2f, 1.0f)).apply()
 }

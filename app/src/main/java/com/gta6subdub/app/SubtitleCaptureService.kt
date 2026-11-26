@@ -29,6 +29,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -71,6 +72,15 @@ class SubtitleCaptureService : Service() {
         prefs = PrefsStore(this)
         overlay = FloatingSubtitleOverlay(this)
         createNotificationChannel()
+
+        serviceScope.launch {
+            SubtitleStateBus.styleVersion.collectLatest {
+                overlay.applyStyle(prefs.subtitleFontSizeSp, prefs.overlayBrightness)
+                if (prefs.isMutedSubOnly || !prefs.autoDubEnabled) {
+                    ElevenLabsClient.stopPlayback(this@SubtitleCaptureService)
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -105,7 +115,9 @@ class SubtitleCaptureService : Service() {
         }
 
         isRunning = true
-        overlay.show()
+        SubtitleStateBus.setCapturing(true)
+        SubtitleStateBus.updateThaiOnly("กำลังรอซับไตเติลจากเกม...")
+        overlay.show(prefs.subtitleFontSizeSp, prefs.overlayBrightness)
         startCapture(resultCode, data)
 
         return START_NOT_STICKY
@@ -121,7 +133,6 @@ class SubtitleCaptureService : Service() {
         @Suppress("DEPRECATION")
         windowManager.defaultDisplay.getRealMetrics(metrics)
 
-        // Downscale by 50% for faster OCR & lower memory usage
         val width = (metrics.widthPixels / 2).coerceAtLeast(480)
         val height = (metrics.heightPixels / 2).coerceAtLeast(360)
         val density = metrics.densityDpi
@@ -159,7 +170,6 @@ class SubtitleCaptureService : Service() {
                 fullBitmap.copyPixelsFromBuffer(buffer)
                 image.close()
 
-                // Crop bottom 25% of the screen (subtitle area)
                 val cropTop = (height * 0.75f).toInt().coerceIn(0, height - 1)
                 val cropHeight = (height - cropTop).coerceAtLeast(1)
                 val croppedBitmap = Bitmap.createBitmap(fullBitmap, 0, cropTop, width, cropHeight)
@@ -235,7 +245,9 @@ class SubtitleCaptureService : Service() {
     private suspend fun translateAndDub(englishText: String) {
         val geminiKey = prefs.geminiApiKey
         if (geminiKey.isEmpty()) {
-            overlay.updateText("กรุณาใส่ Gemini API Key ในแอป")
+            val msg = "กรุณาใส่ Gemini API Key ในแอป"
+            overlay.updateText(msg)
+            SubtitleStateBus.updateSubtitles(englishText, msg)
             return
         }
 
@@ -246,8 +258,9 @@ class SubtitleCaptureService : Service() {
                 model = prefs.geminiModel
             )
             overlay.updateText(thaiText)
+            SubtitleStateBus.updateSubtitles(englishText, thaiText)
 
-            if (prefs.autoDubEnabled) {
+            if (prefs.autoDubEnabled && !prefs.isMutedSubOnly) {
                 val elevenKey = prefs.elevenLabsApiKey
                 val voiceId = prefs.elevenLabsVoiceId
                 if (elevenKey.isNotEmpty() && voiceId.isNotEmpty()) {
@@ -261,12 +274,16 @@ class SubtitleCaptureService : Service() {
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            overlay.updateText("Error: ${e.message}")
+            val err = "Error: ${e.message}"
+            overlay.updateText(err)
+            SubtitleStateBus.updateThaiOnly(err)
         }
     }
 
     override fun onDestroy() {
         isRunning = false
+        SubtitleStateBus.setCapturing(false)
+        SubtitleStateBus.updateThaiOnly("ยังไม่ได้เริ่มแปล")
         ElevenLabsClient.stopPlayback(this)
         overlay.hide()
         virtualDisplay?.release()

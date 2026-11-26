@@ -1,11 +1,8 @@
 package com.gta6subdub.app
 
 import android.Manifest
-import android.app.Activity
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -24,27 +21,12 @@ class MainActivity : AppCompatActivity() {
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
-    private val screenCaptureLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-                val serviceIntent = Intent(this, SubtitleCaptureService::class.java).apply {
-                    putExtra(SubtitleCaptureService.EXTRA_RESULT_CODE, result.resultCode)
-                    putExtra(SubtitleCaptureService.EXTRA_RESULT_DATA, result.data)
-                }
-                ContextCompat.startForegroundService(this, serviceIntent)
-                updateCaptureButtonState(true)
-            } else {
-                Toast.makeText(this, "ไม่ได้รับอนุญาตให้จับภาพหน้าจอ", Toast.LENGTH_SHORT).show()
-            }
-        }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         prefs = PrefsStore(this)
-        loadSavedSettings()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
@@ -54,85 +36,117 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        binding.btnSave.setOnClickListener {
-            saveSettings()
-            Toast.makeText(this, "บันทึกการตั้งค่าแล้ว ✓", Toast.LENGTH_SHORT).show()
+        binding.btnOpenSettings.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
         }
 
-        binding.btnOverlayPermission.setOnClickListener {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")
+        binding.cardHeroStart.setOnClickListener {
+            startActivity(Intent(this, LiveControlActivity::class.java))
+        }
+
+        binding.btnQuickLiveControl.setOnClickListener {
+            startActivity(Intent(this, LiveControlActivity::class.java))
+        }
+
+        binding.btnQuickDubbing.setOnClickListener {
+            prefs.autoDubEnabled = !prefs.autoDubEnabled
+            if (prefs.autoDubEnabled) {
+                prefs.isMutedSubOnly = false
+            }
+            SubtitleStateBus.notifyStyleChanged()
+            refreshDashboardStatus()
+        }
+
+        binding.chipPsRemotePlay.setOnClickListener {
+            val launchIntent = packageManager.getLaunchIntentForPackage("com.scee.psxandroid")
+            if (launchIntent != null) {
+                startActivity(launchIntent)
+            } else {
+                Toast.makeText(
+                    this,
+                    "ยังไม่ได้ติดตั้งแอป PS Remote Play (ติดตั้งจาก Play Store ก่อนครับ)",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+
+        binding.chipOverlay.setOnClickListener {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
             )
-            startActivity(intent)
         }
 
-        binding.btnToggleCapture.setOnClickListener {
-            if (SubtitleCaptureService.isRunning) {
-                val stopIntent = Intent(this, SubtitleCaptureService::class.java).apply {
-                    action = SubtitleCaptureService.ACTION_STOP
-                }
-                startService(stopIntent)
-                updateCaptureButtonState(false)
-                return@setOnClickListener
-            }
+        binding.chipGemini.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
 
-            saveSettings()
-
-            if (!Settings.canDrawOverlays(this)) {
-                Toast.makeText(this, "กรุณาอนุญาตแสดงหน้าต่างลอย (Overlay) ก่อนครับ", Toast.LENGTH_LONG).show()
-                binding.btnOverlayPermission.performClick()
-                return@setOnClickListener
-            }
-
-            if (prefs.geminiApiKey.isEmpty()) {
-                Toast.makeText(this, "กรุณากรอก Gemini API Key ก่อนครับ", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-
-            val projectionManager =
-                getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            screenCaptureLauncher.launch(projectionManager.createScreenCaptureIntent())
+        binding.chipElevenLabs.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
         }
     }
 
     override fun onResume() {
         super.onResume()
+        refreshDashboardStatus()
+    }
+
+    private fun refreshDashboardStatus() {
+        val psInstalled = isPsRemotePlayInstalled()
         val overlayGranted = Settings.canDrawOverlays(this)
-        binding.btnOverlayPermission.text = if (overlayGranted) {
-            "1. อนุญาตหน้าต่างลอยแล้ว ✓"
+        val hasGemini = prefs.geminiApiKey.isNotEmpty()
+        val hasEleven = prefs.elevenLabsApiKey.isNotEmpty()
+
+        binding.tvCheckPsRemote.text = if (psInstalled) "✓" else "✕"
+        binding.tvCheckPsRemote.setTextColor(
+            if (psInstalled) 0xFF4ADE80.toInt() else 0xFFF87171.toInt()
+        )
+
+        binding.tvCheckOverlay.text = if (overlayGranted) "✓" else "●"
+        binding.tvCheckOverlay.setTextColor(
+            if (overlayGranted) 0xFF4ADE80.toInt() else 0xFFFACC15.toInt()
+        )
+
+        binding.tvCheckGemini.text = if (hasGemini) "✓" else "●"
+        binding.tvCheckGemini.setTextColor(
+            if (hasGemini) 0xFF4ADE80.toInt() else 0xFFFACC15.toInt()
+        )
+
+        binding.tvCheckEleven.text = if (hasEleven) "✓" else "●"
+        binding.tvCheckEleven.setTextColor(
+            if (hasEleven) 0xFF4ADE80.toInt() else 0xFFFACC15.toInt()
+        )
+
+        val allReady = psInstalled && overlayGranted && hasGemini
+        binding.tvReadyBadge.text = if (allReady) "✓ พร้อมใช้งาน" else "● ยังตั้งค่าไม่ครบ"
+        binding.tvReadyBadge.setTextColor(
+            if (allReady) 0xFF4ADE80.toInt() else 0xFFFACC15.toInt()
+        )
+
+        val dubActive = prefs.autoDubEnabled && !prefs.isMutedSubOnly
+        binding.tvQuickDubStatus.text = if (dubActive) {
+            "เปิด · ไทย (แตะเพื่อสลับ)"
         } else {
-            "1. อนุญาตแสดงหน้าต่างลอย (Overlay)"
+            "ปิดเสียง · แสดงเฉพาะซับ (แตะเพื่อสลับ)"
         }
-        updateCaptureButtonState(SubtitleCaptureService.isRunning)
     }
 
-    private fun updateCaptureButtonState(running: Boolean) {
-        binding.btnToggleCapture.text = if (running) {
-            "หยุดแปลซับไตเติล + พากย์เสียง"
-        } else {
-            "2. เริ่มแปลซับไตเติล + พากย์เสียง"
+    private fun isPsRemotePlayInstalled(): Boolean {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(
+                    "com.scee.psxandroid",
+                    PackageManager.PackageInfoFlags.of(0)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo("com.scee.psxandroid", 0)
+            }
+            true
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
         }
-        binding.tvStatus.text = if (running) {
-            "สถานะ: กำลังทำงาน (สลับไปเปิด PS Remote Play ได้เลย)"
-        } else {
-            "สถานะ: พร้อมใช้งาน"
-        }
-    }
-
-    private fun loadSavedSettings() {
-        binding.etGeminiKey.setText(prefs.geminiApiKey)
-        binding.etGeminiModel.setText(prefs.geminiModel)
-        binding.etElevenKey.setText(prefs.elevenLabsApiKey)
-        binding.etVoiceId.setText(prefs.elevenLabsVoiceId)
-        binding.switchAutoDub.isChecked = prefs.autoDubEnabled
-    }
-
-    private fun saveSettings() {
-        prefs.geminiApiKey = binding.etGeminiKey.text?.toString().orEmpty()
-        prefs.geminiModel = binding.etGeminiModel.text?.toString().orEmpty()
-        prefs.elevenLabsApiKey = binding.etElevenKey.text?.toString().orEmpty()
-        prefs.elevenLabsVoiceId = binding.etVoiceId.text?.toString().orEmpty()
-        prefs.autoDubEnabled = binding.switchAutoDub.isChecked
     }
 }

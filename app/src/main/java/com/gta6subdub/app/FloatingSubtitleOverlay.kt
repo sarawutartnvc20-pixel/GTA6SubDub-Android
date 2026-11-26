@@ -17,23 +17,19 @@ class FloatingSubtitleOverlay(private val context: Context) {
     private var layoutParams: WindowManager.LayoutParams? = null
 
     @SuppressLint("ClickableViewAccessibility")
-    fun show() {
-        if (subtitleView != null) return
-
-        val bg = GradientDrawable().apply {
-            setColor(Color.argb(215, 16, 16, 22))
-            cornerRadius = 28f
-            setStroke(2, Color.argb(90, 255, 255, 255))
+    fun show(fontSizeSp: Float = 18f, brightness: Float = 0.85f) {
+        if (subtitleView != null) {
+            applyStyle(fontSizeSp, brightness)
+            return
         }
 
         val tv = TextView(context).apply {
             text = "รอซับไตเติลจากเกม..."
             setTextColor(Color.rgb(255, 235, 90))
-            textSize = 18f
+            textSize = fontSizeSp
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setPadding(36, 20, 36, 20)
-            background = bg
             setShadowLayer(4f, 0f, 2f, Color.BLACK)
         }
 
@@ -49,7 +45,6 @@ class FloatingSubtitleOverlay(private val context: Context) {
             y = 90
         }
 
-        // Allow dragging the floating subtitle box anywhere on screen
         var initialX = 0
         var initialY = 0
         var initialTouchX = 0f
@@ -77,6 +72,24 @@ class FloatingSubtitleOverlay(private val context: Context) {
         windowManager.addView(tv, params)
         subtitleView = tv
         layoutParams = params
+        applyStyle(fontSizeSp, brightness)
+    }
+
+    fun applyStyle(fontSizeSp: Float, brightness: Float) {
+        subtitleView?.post {
+            val tv = subtitleView ?: return@post
+            tv.textSize = fontSizeSp.coerceIn(12f, 34f)
+            val alpha = (brightness.coerceIn(0.2f, 1.0f) * 235).toInt()
+            val textAlpha = (0.45f + brightness.coerceIn(0.2f, 1.0f) * 0.55f)
+            tv.setTextColor(
+                Color.argb((textAlpha * 255).toInt(), 255, 235, 90)
+            )
+            tv.background = GradientDrawable().apply {
+                setColor(Color.argb(alpha, 14, 12, 24))
+                cornerRadius = 28f
+                setStroke(2, Color.argb(95, 255, 110, 180))
+            }
+        }
     }
 
     fun updateText(thaiText: String) {
