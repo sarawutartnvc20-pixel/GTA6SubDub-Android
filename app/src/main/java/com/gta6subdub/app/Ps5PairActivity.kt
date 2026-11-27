@@ -46,9 +46,9 @@ class Ps5PairActivity : AppCompatActivity() {
     private fun startDiscovery() {
         try {
             val options = DiscoveryServiceOptions(
-                hostsMax = 16u,
-                hostDropPings = 4u,
-                pingMs = 500u,
+                hostsMax = 16uL,
+                hostDropPings = 4uL,
+                pingMs = 500uL,
                 sendAddr = InetSocketAddress("255.255.255.255", 9302)
             )
             discoveryService = DiscoveryService(options) { hosts ->

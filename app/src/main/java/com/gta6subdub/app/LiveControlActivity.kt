@@ -1,17 +1,28 @@
 package com.gta6subdub.app
 
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraManager
 import android.os.Bundle
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
 import android.widget.SeekBar
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -34,21 +45,36 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
 
     private lateinit var binding: ActivityLiveControlBinding
     private lateinit var prefs: PrefsStore
-    private lateinit var androidTts: AndroidTtsSpeaker
+    private lateinit var voiceRouter: VoiceRouter
 
     private var chiakiSession: Session? = null
     private var streamSurface: Surface? = null
-    private var isStreaming = false
 
+    // Camera2 fields for Camera OCR mode
+    private var cameraDevice: CameraDevice? = null
+    private var cameraCaptureSession: CameraCaptureSession? = null
+    private var cameraThread: HandlerThread? = null
+    private var cameraHandler: Handler? = null
+
+    private var isRunning = false
     private val ocrHandler = Handler(Looper.getMainLooper())
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private var isOcrBusy = false
     private var lastRecognizedText = ""
     private var lastApiCallMs = 0L
 
+    private val cameraPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                startCameraCapture()
+            } else {
+                Toast.makeText(this, "ต้องอนุญาตใช้กล้องเพื่อส่องทีวีครับ", Toast.LENGTH_LONG).show()
+            }
+        }
+
     private val ocrLoopRunnable = object : Runnable {
         override fun run() {
-            if (!isStreaming) return
+            if (!isRunning) return
             captureFrameAndRunOcr()
             ocrHandler.postDelayed(this, 650L)
         }
@@ -60,10 +86,11 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         setContentView(binding.root)
 
         prefs = PrefsStore(this)
-        androidTts = AndroidTtsSpeaker(this)
+        voiceRouter = VoiceRouter(this)
         binding.texturePs5Stream.surfaceTextureListener = this
 
         initSliders()
+        refreshModeUI()
         refreshAudioButtons()
         updateStreamUI(false, "● หยุดแล้ว")
 
@@ -74,15 +101,16 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
                 if (binding.layoutSliders.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         }
 
-        binding.btnPairShortcut.setOnClickListener {
-            startActivity(Intent(this, Ps5PairActivity::class.java))
+        binding.btnSwitchSource.setOnClickListener {
+            if (isRunning) stopActiveSource()
+            prefs.captureMode = if (prefs.captureMode == "ps5") "camera" else "ps5"
+            refreshModeUI()
         }
 
         binding.btnMuteToggle.setOnClickListener {
             prefs.isMutedSubOnly = !prefs.isMutedSubOnly
             if (prefs.isMutedSubOnly) {
-                ElevenLabsClient.stopPlayback(this)
-                androidTts.stop()
+                voiceRouter.stopAll()
             }
             refreshAudioButtons()
         }
@@ -92,39 +120,74 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
             if (prefs.autoDubEnabled) {
                 prefs.isMutedSubOnly = false
             } else {
-                ElevenLabsClient.stopPlayback(this)
-                androidTts.stop()
+                voiceRouter.stopAll()
             }
             refreshAudioButtons()
         }
 
         binding.btnStartStopLive.setOnClickListener {
-            if (isStreaming) {
-                stopPs5Stream()
+            if (isRunning) {
+                stopActiveSource()
             } else {
-                startPs5Stream()
+                startActiveSource()
             }
         }
     }
 
-    private fun startPs5Stream() {
-        if (!prefs.isPsnLoggedIn) {
-            Toast.makeText(this, "กรุณาล็อกอินบัญชี PSN ที่สองก่อนครับ", Toast.LENGTH_LONG).show()
-            startActivity(Intent(this, PsnAuthActivity::class.java))
-            return
+    private fun refreshModeUI() {
+        val isCamera = prefs.captureMode == "camera"
+        binding.btnSwitchSource.text = if (isCamera) "โหมด: กล้อง" else "โหมด: PS5"
+        binding.tvQualityBadge.text = if (isCamera) "CAM" else "720p"
+        if (!isRunning) {
+            binding.tvVideoPlaceholder.text = if (isCamera) {
+                "โหมดกล้องส่องทีวี: กด ▶ เริ่ม แล้วหันกล้องส่องซับไตเติลบนทีวี"
+            } else {
+                "โหมด PS5 Remote: กด ▶ เริ่ม เพื่อเชื่อมภาพจาก PS5 (บัญชีที่ 2)"
+            }
         }
+    }
 
-        val registKey = prefs.getRegistKeyBytes()
-        val rpKey = prefs.getRpKeyBytes()
-        if (!prefs.isPs5Paired || registKey == null || rpKey == null) {
-            Toast.makeText(this, "กรุณาจับคู่เครื่อง PS5 (PIN 8 หลัก) ก่อนครับ", Toast.LENGTH_LONG).show()
-            startActivity(Intent(this, Ps5PairActivity::class.java))
-            return
-        }
-
+    private fun startActiveSource() {
         if (prefs.geminiApiKey.isEmpty()) {
             Toast.makeText(this, "กรุณากรอก Gemini API Key ในหน้าตั้งค่าก่อนครับ", Toast.LENGTH_LONG).show()
             startActivity(Intent(this, SettingsActivity::class.java))
+            return
+        }
+
+        GeminiClient.clearHistory()
+        lastRecognizedText = ""
+
+        if (prefs.captureMode == "camera") {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            } else {
+                startCameraCapture()
+            }
+        } else {
+            startPs5Stream()
+        }
+    }
+
+    private fun stopActiveSource() {
+        isRunning = false
+        ocrHandler.removeCallbacks(ocrLoopRunnable)
+        voiceRouter.stopAll()
+        stopPs5Session()
+        stopCameraCapture()
+        updateStreamUI(false, "● หยุดแล้ว")
+        binding.tvVideoPlaceholder.visibility = View.VISIBLE
+    }
+
+    // MARK: - Mode 1: Embedded PS5 Remote Play (Chiaki)
+
+    private fun startPs5Stream() {
+        val registKey = prefs.getRegistKeyBytes()
+        val rpKey = prefs.getRpKeyBytes()
+        if (!prefs.isPsnLoggedIn || !prefs.isPs5Paired || registKey == null || rpKey == null) {
+            Toast.makeText(this, "ยังไม่ได้จับคู่ PS5 — เปิดหน้าเชื่อมต่อ 3 ขั้นตอนให้ครับ", Toast.LENGTH_LONG).show()
+            startActivity(Intent(this, Ps5SetupWizardActivity::class.java))
             return
         }
 
@@ -156,7 +219,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
                         }
                         is QuitEvent -> {
                             val msg = event.reasonString ?: event.reason.toString()
-                            stopPs5Stream()
+                            stopActiveSource()
                             binding.tvLiveThai.text = "หลุดการเชื่อมต่อ: $msg"
                         }
                         else -> {}
@@ -178,22 +241,17 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
             }
 
             chiakiSession = session
-            isStreaming = true
+            isRunning = true
             ocrHandler.removeCallbacks(ocrLoopRunnable)
             ocrHandler.postDelayed(ocrLoopRunnable, 1000L)
         } catch (e: Exception) {
             e.printStackTrace()
-            stopPs5Stream()
+            stopActiveSource()
             Toast.makeText(this, "เชื่อมต่อ PS5 ไม่สำเร็จ: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
-    private fun stopPs5Stream() {
-        isStreaming = false
-        ocrHandler.removeCallbacks(ocrLoopRunnable)
-        ElevenLabsClient.stopPlayback(this)
-        androidTts.stop()
-
+    private fun stopPs5Session() {
         val s = chiakiSession
         chiakiSession = null
         if (s != null) {
@@ -205,10 +263,104 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
                 }
             }
         }
-
-        updateStreamUI(false, "● หยุดแล้ว")
-        binding.tvVideoPlaceholder.visibility = View.VISIBLE
     }
+
+    // MARK: - Mode 2: Rear Camera OCR (TV / Monitor)
+
+    @SuppressLint("MissingPermission")
+    private fun startCameraCapture() {
+        if (!binding.texturePs5Stream.isAvailable) {
+            Toast.makeText(this, "หน้าจอกล้องยังไม่พร้อม กรุณากดเริ่มอีกครั้ง", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        try {
+            val manager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val backCameraId = manager.cameraIdList.firstOrNull { id ->
+                manager.getCameraCharacteristics(id)
+                    .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+            } ?: manager.cameraIdList.firstOrNull()
+                ?: throw IllegalStateException("ไม่พบกล้องในเครื่อง")
+
+            val thread = HandlerThread("CameraOcrThread").apply { start() }
+            cameraThread = thread
+            cameraHandler = Handler(thread.looper)
+
+            binding.tvVideoPlaceholder.visibility = View.GONE
+            updateStreamUI(true, "● กำลังแปล (กล้อง)")
+            binding.tvLiveThai.text = "หันกล้องไปที่ซับไตเติลบนทีวี..."
+
+            manager.openCamera(backCameraId, object : CameraDevice.StateCallback() {
+                override fun onOpened(camera: CameraDevice) {
+                    cameraDevice = camera
+                    val surfaceTexture = binding.texturePs5Stream.surfaceTexture ?: return
+                    surfaceTexture.setDefaultBufferSize(1280, 720)
+                    streamSurface?.release()
+                    val previewSurface = Surface(surfaceTexture)
+                    streamSurface = previewSurface
+
+                    val requestBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
+                    requestBuilder.addTarget(previewSurface)
+
+                    @Suppress("DEPRECATION")
+                    camera.createCaptureSession(
+                        listOf(previewSurface),
+                        object : CameraCaptureSession.StateCallback() {
+                            override fun onConfigured(session: CameraCaptureSession) {
+                                cameraCaptureSession = session
+                                try {
+                                    session.setRepeatingRequest(requestBuilder.build(), null, cameraHandler)
+                                    isRunning = true
+                                    ocrHandler.removeCallbacks(ocrLoopRunnable)
+                                    ocrHandler.postDelayed(ocrLoopRunnable, 800L)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }
+
+                            override fun onConfigureFailed(session: CameraCaptureSession) {
+                                runOnUiThread {
+                                    stopActiveSource()
+                                    Toast.makeText(this@LiveControlActivity, "เปิดกล้องไม่สำเร็จ", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        cameraHandler
+                    )
+                }
+
+                override fun onDisconnected(camera: CameraDevice) {
+                    camera.close()
+                    cameraDevice = null
+                }
+
+                override fun onError(camera: CameraDevice, error: Int) {
+                    camera.close()
+                    cameraDevice = null
+                    runOnUiThread { stopActiveSource() }
+                }
+            }, cameraHandler)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            stopActiveSource()
+            Toast.makeText(this, "เปิดกล้องไม่สำเร็จ: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun stopCameraCapture() {
+        try {
+            cameraCaptureSession?.close()
+            cameraDevice?.close()
+            cameraThread?.quitSafely()
+        } catch (_: Exception) {
+        }
+        cameraCaptureSession = null
+        cameraDevice = null
+        cameraThread = null
+        cameraHandler = null
+    }
+
+    // MARK: - OCR -> Gemini (GTA 6 Slang Pack) -> VoiceRouter (Gemini TTS / ElevenLabs / Android)
 
     private fun captureFrameAndRunOcr() {
         if (isOcrBusy || !binding.texturePs5Stream.isAvailable) return
@@ -276,31 +428,18 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
 
         try {
             val thaiText = GeminiClient.translateSubtitle(
+                context = this,
                 englishText = englishText,
                 apiKey = geminiKey,
-                model = prefs.geminiModel
+                model = prefs.geminiModel,
+                gameId = prefs.selectedGameId
             )
             withContext(Dispatchers.Main) {
                 binding.tvLiveThai.text = thaiText
             }
 
             if (prefs.autoDubEnabled && !prefs.isMutedSubOnly) {
-                val elevenKey = prefs.elevenLabsApiKey
-                val voiceId = prefs.elevenLabsVoiceId
-                if (elevenKey.isNotEmpty() && voiceId.isNotEmpty()) {
-                    try {
-                        ElevenLabsClient.synthesizeAndPlay(
-                            context = this,
-                            text = thaiText,
-                            apiKey = elevenKey,
-                            voiceId = voiceId
-                        )
-                    } catch (_: Exception) {
-                        androidTts.speak(thaiText)
-                    }
-                } else {
-                    androidTts.speak(thaiText)
-                }
+                voiceRouter.speak(thaiText)
             }
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
@@ -308,6 +447,8 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
             }
         }
     }
+
+    // MARK: - Sliders & Controls
 
     private fun initSliders() {
         val currentFontProgress = (prefs.subtitleFontSizeSp - 12f).toInt().coerceIn(0, 22)
@@ -338,9 +479,8 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
 
     private fun applyPreviewStyle() {
         binding.tvLiveThai.textSize = prefs.subtitleFontSizeSp
-        val brightness = prefs.overlayBrightness
         val lp = window.attributes
-        lp.screenBrightness = brightness
+        lp.screenBrightness = prefs.overlayBrightness
         window.attributes = lp
     }
 
@@ -353,9 +493,15 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
             if (dubOn) R.drawable.bg_card_pink else R.drawable.bg_pill_dark
         )
 
+        val engineLabel = when (prefs.voiceEngine) {
+            "gemini" -> "Gemini TTS (${prefs.geminiTtsVoice})"
+            "elevenlabs" -> "ElevenLabs"
+            else -> "Android TTS"
+        }
+
         binding.tvAudioModeHint.text = when {
             muted -> "โหมด: ปิดเสียง (แสดงเฉพาะซับไตเติลภาษาไทย)"
-            dubOn -> "โหมด: ซับไตเติล + พากย์เสียงภาษาไทยเรียลไทม์"
+            dubOn -> "โหมด: ซับไตเติล + พากย์เสียง $engineLabel"
             else -> "โหมด: แสดงซับไตเติล (ปิดพากย์เสียง)"
         }
     }
@@ -367,8 +513,6 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         )
         binding.btnStartStopLive.text = if (running) "⏸  หยุด" else "▶  เริ่ม"
     }
-
-    // MARK: - TextureView.SurfaceTextureListener
 
     override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
         streamSurface?.release()
@@ -389,8 +533,8 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
 
     override fun onDestroy() {
-        stopPs5Stream()
-        androidTts.shutdown()
+        stopActiveSource()
+        voiceRouter.shutdown()
         super.onDestroy()
     }
 }

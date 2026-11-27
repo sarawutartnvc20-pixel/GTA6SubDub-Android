@@ -37,16 +37,28 @@
         android:id="@+id/tvPsnHint"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="8dp"
         android:text="ล็อกอินด้วยบัญชี PSN ฟรีอีกบัญชี (ไม่ใช่บัญชีหลักที่เล่น) เพื่อไม่ให้แย่งคอนโทรลเลอร์บน PS5"
         android:textColor="#A79CB8"
         android:textSize="12sp" />
+
+    <TextView
+        android:id="@+id/btnOpenChromeTab"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="10dp"
+        android:background="@drawable/bg_gradient_start_btn"
+        android:gravity="center"
+        android:text="🌐 เปิดหน้าล็อกอิน Sony (Chrome Custom Tab)"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:textStyle="bold" />
 
     <WebView
         android:id="@+id/webViewPsn"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="10dp"
         android:layout_weight="1" />
 
     <LinearLayout
@@ -64,11 +76,11 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:background="@null"
-            android:hint="หรือวาง Account ID (Base64) เอง"
+            android:hint="วางลิงก์ ?code=... หรือ Account ID (Base64)"
             android:inputType="text"
             android:textColor="#FFFFFF"
             android:textColorHint="#7A708D"
-            android:textSize="13sp" />
+            android:textSize="12sp" />
 
         <TextView
             android:id="@+id/btnSaveManualAccount"

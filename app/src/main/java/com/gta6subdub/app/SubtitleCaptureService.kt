@@ -306,9 +306,11 @@ class SubtitleCaptureService : Service() {
         overlay.updateText("⏳ $englishText")
         try {
             val thaiText = GeminiClient.translateSubtitle(
+                context = this,
                 englishText = englishText,
                 apiKey = geminiKey,
-                model = prefs.geminiModel
+                model = prefs.geminiModel,
+                gameId = prefs.selectedGameId
             )
             overlay.updateText(thaiText)
             SubtitleStateBus.updateSubtitles(englishText, thaiText)

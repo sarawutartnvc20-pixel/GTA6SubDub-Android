@@ -86,4 +86,5 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.oboe:oboe:1.10.0")
+    implementation("androidx.browser:browser:1.8.0")
 }

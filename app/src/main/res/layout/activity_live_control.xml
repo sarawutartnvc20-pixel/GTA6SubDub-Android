@@ -6,7 +6,7 @@
     android:orientation="vertical"
     android:padding="14dp">
 
-    <!-- Top Control Bar (Image 4) -->
+    <!-- Top Control Bar -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -43,7 +43,7 @@
 
         <TextView
             android:id="@+id/btnToggleSliders"
-            android:layout_width="42dp"
+            android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@drawable/bg_pill_dark"
             android:gravity="center"
@@ -53,18 +53,20 @@
             android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/btnPairShortcut"
-            android:layout_width="42dp"
+            android:id="@+id/btnSwitchSource"
+            android:layout_width="wrap_content"
             android:layout_height="40dp"
             android:layout_marginStart="6dp"
             android:background="@drawable/bg_pill_dark"
             android:gravity="center"
-            android:text="⚙"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp" />
+            android:paddingHorizontal="12dp"
+            android:text="โหมด: PS5"
+            android:textColor="#FFEB5A"
+            android:textSize="12sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Font Size + Brightness Sliders (Image 4) -->
+    <!-- Font Size + Brightness Sliders -->
     <LinearLayout
         android:id="@+id/layoutSliders"
         android:layout_width="match_parent"
@@ -94,7 +96,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:max="22"
-                android:progress="6"
+                android:progress="8"
                 android:progressTint="#FFFFFF"
                 android:thumbTint="#FFFFFF" />
 
@@ -141,7 +143,7 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Embedded PS5 Remote Play Video Stream + Subtitles (Image 4) -->
+    <!-- Live Video Feed (PS5 Stream OR Camera) + Subtitles -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -160,13 +162,21 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
 
+            <!-- Subtitle Scan Zone Guide (bottom 35%) -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="80dp"
+                android:layout_gravity="bottom"
+                android:background="#22F472B6" />
+
             <TextView
                 android:id="@+id/tvVideoPlaceholder"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:gravity="center"
-                android:text="กด ▶ เริ่ม เพื่อเชื่อมภาพจาก PS5 (บัญชีที่ 2)\nโดยไม่รบกวนคอนโทรลเลอร์หลัก"
-                android:textColor="#7A708D"
+                android:padding="16dp"
+                android:text="กด ▶ เริ่ม เพื่อรับภาพเกมและแปลซับเรียลไทม์\n(แถบชมพูด้านล่างคือพื้นที่อ่านซับ)"
+                android:textColor="#A79CB8"
                 android:textSize="13sp" />
         </FrameLayout>
 
@@ -186,10 +196,10 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
             android:gravity="center"
-            android:minHeight="68dp"
+            android:minHeight="76dp"
             android:paddingHorizontal="12dp"
             android:text="ยังไม่ได้เริ่มแปล"
-            android:textColor="#FFFFFF"
+            android:textColor="#FFEB5A"
             android:textSize="20sp"
             android:textStyle="bold" />
 
@@ -198,12 +208,12 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:text="โหมด: ซับไตเติล + พากย์เสียงภาษาไทยเรียลไทม์"
+            android:text="โหมด: ซับไตเติล + พากย์เสียง Gemini TTS"
             android:textColor="#A79CB8"
             android:textSize="11sp" />
     </LinearLayout>
 
-    <!-- Bottom Bar (Image 4) -->
+    <!-- Bottom Bar -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -217,17 +227,17 @@
             android:layout_height="46dp"
             android:background="@drawable/bg_pill_dark"
             android:gravity="center"
-            android:paddingHorizontal="16dp"
+            android:paddingHorizontal="14dp"
             android:text="720p"
             android:textColor="#FFFFFF"
-            android:textSize="13sp"
+            android:textSize="12sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/btnMuteToggle"
             android:layout_width="46dp"
             android:layout_height="46dp"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="8dp"
             android:background="@drawable/bg_pill_dark"
             android:gravity="center"
             android:text="🔊"
@@ -238,7 +248,7 @@
             android:id="@+id/btnVoiceDubToggle"
             android:layout_width="46dp"
             android:layout_height="46dp"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="8dp"
             android:background="@drawable/bg_card_pink"
             android:gravity="center"
             android:text="🗣"
@@ -249,7 +259,7 @@
             android:id="@+id/btnStartStopLive"
             android:layout_width="0dp"
             android:layout_height="50dp"
-            android:layout_marginStart="12dp"
+            android:layout_marginStart="10dp"
             android:layout_weight="1"
             android:background="@drawable/bg_gradient_start_btn"
             android:gravity="center"

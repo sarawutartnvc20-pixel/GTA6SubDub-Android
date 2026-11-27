@@ -20,6 +20,16 @@ class PrefsStore(context: Context) {
             value.trim().ifEmpty { "gemini-2.5-flash" }
         ).apply()
 
+    // Voice engine: "gemini", "elevenlabs", or "android"
+    var voiceEngine: String
+        get() = prefs.getString("voice_engine", "gemini") ?: "gemini"
+        set(value) = prefs.edit().putString("voice_engine", value).apply()
+
+    // Gemini TTS voice name: Fenrir, Kore, Puck, Charon, Aoede
+    var geminiTtsVoice: String
+        get() = prefs.getString("gemini_tts_voice", "Fenrir") ?: "Fenrir"
+        set(value) = prefs.edit().putString("gemini_tts_voice", value).apply()
+
     var elevenLabsApiKey: String
         get() = prefs.getString("elevenlabs_api_key", "") ?: ""
         set(value) = prefs.edit().putString("elevenlabs_api_key", value.trim()).apply()
@@ -40,22 +50,31 @@ class PrefsStore(context: Context) {
         set(value) = prefs.edit().putBoolean("is_muted_sub_only", value).apply()
 
     var subtitleFontSizeSp: Float
-        get() = prefs.getFloat("subtitle_font_size_sp", 18f).coerceIn(12f, 34f)
+        get() = prefs.getFloat("subtitle_font_size_sp", 20f).coerceIn(12f, 34f)
         set(value) = prefs.edit().putFloat("subtitle_font_size_sp", value.coerceIn(12f, 34f)).apply()
 
     var overlayBrightness: Float
         get() = prefs.getFloat("overlay_brightness", 0.85f).coerceIn(0.2f, 1.0f)
         set(value) = prefs.edit().putFloat("overlay_brightness", value.coerceIn(0.2f, 1.0f)).apply()
 
-    // MARK: - 2nd PSN Account & Paired PS5 Credentials (for chiaki-ng)
+    // Game & slang pack
+    var selectedGameId: String
+        get() = prefs.getString("selected_game_id", "gta6") ?: "gta6"
+        set(value) = prefs.edit().putString("selected_game_id", value).apply()
 
+    var customSlangPackUrl: String
+        get() = prefs.getString("custom_slang_pack_url", "") ?: ""
+        set(value) = prefs.edit().putString("custom_slang_pack_url", value.trim()).apply()
+
+    // Input video source: "ps5" or "camera"
+    var captureMode: String
+        get() = prefs.getString("capture_mode", "ps5") ?: "ps5"
+        set(value) = prefs.edit().putString("capture_mode", value).apply()
+
+    // 2nd PSN Account & Paired PS5 Credentials
     var psnAccountIdBase64: String
         get() = prefs.getString("psn_account_id_b64", "") ?: ""
         set(value) = prefs.edit().putString("psn_account_id_b64", value.trim()).apply()
-
-    var psnOnlineId: String
-        get() = prefs.getString("psn_online_id", "") ?: ""
-        set(value) = prefs.edit().putString("psn_online_id", value.trim()).apply()
 
     var ps5Host: String
         get() = prefs.getString("ps5_host", "") ?: ""
@@ -109,4 +128,11 @@ class PrefsStore(context: Context) {
 
     val isPs5Paired: Boolean
         get() = ps5Host.isNotEmpty() && getRegistKeyBytes() != null && getRpKeyBytes() != null
+
+    val isVoiceReady: Boolean
+        get() = when (voiceEngine) {
+            "gemini" -> geminiApiKey.isNotEmpty()
+            "elevenlabs" -> elevenLabsApiKey.isNotEmpty() && elevenLabsVoiceId.isNotEmpty()
+            else -> true
+        }
 }

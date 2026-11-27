@@ -25,9 +25,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="PlayStation · หน้าจอนี้"
+                android:text="GTA6 SubDub"
                 android:textColor="#FFFFFF"
-                android:textSize="15sp"
+                android:textSize="16sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -41,85 +41,78 @@
                 android:textSize="14sp" />
         </LinearLayout>
 
-        <!-- Hero Card (Image 2 style) -->
+        <!-- Hero Card -->
         <LinearLayout
             android:id="@+id/cardHeroStart"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:background="@drawable/bg_card_dark"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
+            android:gravity="center"
+            android:orientation="vertical"
             android:padding="20dp">
 
-            <FrameLayout
-                android:layout_width="84dp"
-                android:layout_height="84dp">
-
-                <View
-                    android:layout_width="84dp"
-                    android:layout_height="84dp"
-                    android:background="@drawable/bg_hero_circle" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:gravity="center"
-                    android:text="PS"
-                    android:textColor="#FFFFFF"
-                    android:textSize="26sp"
-                    android:textStyle="bold" />
-            </FrameLayout>
-
-            <LinearLayout
-                android:layout_width="0dp"
+            <TextView
+                android:id="@+id/tvReadyBadge"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="18dp"
-                android:layout_weight="1"
-                android:orientation="vertical">
+                android:text="✓ พร้อมใช้งาน"
+                android:textColor="#4ADE80"
+                android:textSize="16sp"
+                android:textStyle="bold" />
 
-                <TextView
-                    android:id="@+id/tvReadyBadge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="✓ พร้อมใช้งาน"
-                    android:textColor="#4ADE80"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="เริ่มแปล"
-                    android:textColor="#FFFFFF"
-                    android:textSize="24sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="เปิดเกมโดยเปิดคำบรรยายไว้\nแล้วแตะที่นี่เพื่อควบคุมและเริ่มแปล"
-                    android:textColor="#A79CB8"
-                    android:textSize="13sp" />
-            </LinearLayout>
+            <TextView
+                android:id="@+id/btnHeroPlay"
+                android:layout_width="200dp"
+                android:layout_height="52dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_gradient_start_btn"
+                android:gravity="center"
+                android:text="▶  เริ่มแปล"
+                android:textColor="#FFFFFF"
+                android:textSize="19sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- Quick Actions -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="22dp"
-            android:text="การทำงานด่วน"
-            android:textColor="#A79CB8"
-            android:textSize="13sp" />
-
+        <!-- Mode Selector Tabs (PS5 Remote vs Camera OCR) -->
         <LinearLayout
-            android:id="@+id/btnQuickLiveControl"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginTop="14dp"
+            android:background="@drawable/bg_pill_dark"
+            android:orientation="horizontal"
+            android:padding="4dp">
+
+            <TextView
+                android:id="@+id/tabModePs5"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@drawable/bg_card_pink"
+                android:gravity="center"
+                android:text="PS5 Remote"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tabModeCamera"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="กล้องส่องทีวี"
+                android:textColor="#A79CB8"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- Game & Slang Pack Selector Card -->
+        <LinearLayout
+            android:id="@+id/btnSelectGame"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="14dp"
             android:background="@drawable/bg_card_dark"
             android:gravity="center_vertical"
             android:orientation="horizontal"
@@ -128,7 +121,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="🖥"
+                android:text="🎮"
                 android:textSize="22sp" />
 
             <LinearLayout
@@ -139,22 +132,32 @@
                 android:orientation="vertical">
 
                 <TextView
+                    android:id="@+id/tvSelectedGameName"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="หน้าจอควบคุมคำบรรยาย"
+                    android:text="Grand Theft Auto VI"
                     android:textColor="#FFFFFF"
-                    android:textSize="16sp"
+                    android:textSize="15sp"
                     android:textStyle="bold" />
 
                 <TextView
+                    android:id="@+id/tvSlangPackBadge"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="ปรับขนาดตัวอักษร ปรับแสง ปิด/เปิดเสียง"
+                    android:text="แตะเพื่อเลือกเกม / ดาวน์โหลดชุดคำสแลงดิบ"
                     android:textColor="#A79CB8"
                     android:textSize="12sp" />
             </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="›"
+                android:textColor="#A79CB8"
+                android:textSize="22sp" />
         </LinearLayout>
 
+        <!-- Quick Dubbing Toggle Card (Pink highlight) -->
         <LinearLayout
             android:id="@+id/btnQuickDubbing"
             android:layout_width="match_parent"
@@ -179,11 +182,12 @@
                 android:orientation="vertical">
 
                 <TextView
+                    android:id="@+id/tvQuickDubTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="พากย์เสียง"
+                    android:text="พากย์เสียง: Gemini TTS"
                     android:textColor="#FFFFFF"
-                    android:textSize="16sp"
+                    android:textSize="15sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -196,12 +200,12 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- Connection & Module Status Chips (Image 2 bottom grid) -->
+        <!-- 4 Status Tiles -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="22dp"
-            android:text="สถานะการเชื่อมต่อ"
+            android:layout_marginTop="20dp"
+            android:text="สถานะการเชื่อมต่อ (แตะเพื่อตั้งค่า)"
             android:textColor="#A79CB8"
             android:textSize="13sp" />
 
@@ -212,7 +216,7 @@
             android:orientation="horizontal">
 
             <LinearLayout
-                android:id="@+id/chipPsRemotePlay"
+                android:id="@+id/chipPsnAccount"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="6dp"
@@ -226,13 +230,13 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="บัญชี PSN (ที่ 2)"
+                    android:text="บัญชี PSN ที่ 2"
                     android:textColor="#FFFFFF"
                     android:textSize="13sp"
                     android:textStyle="bold" />
 
                 <TextView
-                    android:id="@+id/tvCheckPsRemote"
+                    android:id="@+id/tvCheckPsn"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="●"
@@ -242,7 +246,7 @@
             </LinearLayout>
 
             <LinearLayout
-                android:id="@+id/chipOverlay"
+                android:id="@+id/chipPs5Pair"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="6dp"
@@ -253,6 +257,7 @@
                 android:padding="14dp">
 
                 <TextView
+                    android:id="@+id/tvPs5Label"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
@@ -262,12 +267,12 @@
                     android:textStyle="bold" />
 
                 <TextView
-                    android:id="@+id/tvCheckOverlay"
+                    android:id="@+id/tvCheckPs5"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="●"
                     android:textColor="#FACC15"
-                    android:textSize="15sp"
+                    android:textSize="16sp"
                     android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
@@ -293,7 +298,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="แปลภาษา Gemini"
+                    android:text="Gemini AI"
                     android:textColor="#FFFFFF"
                     android:textSize="13sp"
                     android:textStyle="bold" />
@@ -304,12 +309,12 @@
                     android:layout_height="wrap_content"
                     android:text="●"
                     android:textColor="#FACC15"
-                    android:textSize="15sp"
+                    android:textSize="16sp"
                     android:textStyle="bold" />
             </LinearLayout>
 
             <LinearLayout
-                android:id="@+id/chipElevenLabs"
+                android:id="@+id/chipVoice"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="6dp"
@@ -323,18 +328,18 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="พากย์ ElevenLabs"
+                    android:text="เสียงพากย์"
                     android:textColor="#FFFFFF"
                     android:textSize="13sp"
                     android:textStyle="bold" />
 
                 <TextView
-                    android:id="@+id/tvCheckEleven"
+                    android:id="@+id/tvCheckVoice"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="●"
                     android:textColor="#FACC15"
-                    android:textSize="15sp"
+                    android:textSize="16sp"
                     android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
