@@ -50,6 +50,7 @@ class SubtitleCaptureService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var prefs: PrefsStore
     private lateinit var overlay: FloatingSubtitleOverlay
+    private lateinit var androidTts: AndroidTtsSpeaker
 
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
@@ -71,6 +72,7 @@ class SubtitleCaptureService : Service() {
         super.onCreate()
         prefs = PrefsStore(this)
         overlay = FloatingSubtitleOverlay(this)
+        androidTts = AndroidTtsSpeaker(this)
         createNotificationChannel()
 
         serviceScope.launch {
@@ -78,6 +80,7 @@ class SubtitleCaptureService : Service() {
                 overlay.applyStyle(prefs.subtitleFontSizeSp, prefs.overlayBrightness)
                 if (prefs.isMutedSubOnly || !prefs.autoDubEnabled) {
                     ElevenLabsClient.stopPlayback(this@SubtitleCaptureService)
+                    androidTts.stop()
                 }
             }
         }
@@ -170,8 +173,18 @@ class SubtitleCaptureService : Service() {
                 fullBitmap.copyPixelsFromBuffer(buffer)
                 image.close()
 
-                val cropTop = (height * 0.75f).toInt().coerceIn(0, height - 1)
-                val cropHeight = (height - cropTop).coerceAtLeast(1)
+                val isPortrait = height >= width
+                val cropTop = if (isPortrait) {
+                    (height * 0.30f).toInt().coerceIn(0, height - 1)
+                } else {
+                    (height * 0.60f).toInt().coerceIn(0, height - 1)
+                }
+                val cropBottom = if (isPortrait) {
+                    (height * 0.85f).toInt().coerceIn(cropTop + 1, height)
+                } else {
+                    height
+                }
+                val cropHeight = (cropBottom - cropTop).coerceAtLeast(1)
                 val croppedBitmap = Bitmap.createBitmap(fullBitmap, 0, cropTop, width, cropHeight)
                 fullBitmap.recycle()
 
@@ -264,12 +277,19 @@ class SubtitleCaptureService : Service() {
                 val elevenKey = prefs.elevenLabsApiKey
                 val voiceId = prefs.elevenLabsVoiceId
                 if (elevenKey.isNotEmpty() && voiceId.isNotEmpty()) {
-                    ElevenLabsClient.synthesizeAndPlay(
-                        context = this,
-                        text = thaiText,
-                        apiKey = elevenKey,
-                        voiceId = voiceId
-                    )
+                    try {
+                        ElevenLabsClient.synthesizeAndPlay(
+                            context = this,
+                            text = thaiText,
+                            apiKey = elevenKey,
+                            voiceId = voiceId
+                        )
+                    } catch (ttsErr: Exception) {
+                        ttsErr.printStackTrace()
+                        androidTts.speak(thaiText)
+                    }
+                } else {
+                    androidTts.speak(thaiText)
                 }
             }
         } catch (e: Exception) {
@@ -285,6 +305,7 @@ class SubtitleCaptureService : Service() {
         SubtitleStateBus.setCapturing(false)
         SubtitleStateBus.updateThaiOnly("ยังไม่ได้เริ่มแปล")
         ElevenLabsClient.stopPlayback(this)
+        androidTts.shutdown()
         overlay.hide()
         virtualDisplay?.release()
         imageReader?.close()
