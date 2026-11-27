@@ -10,16 +10,17 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.ArrayDeque
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 object GeminiClient {
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(12, TimeUnit.SECONDS)
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(14, TimeUnit.SECONDS)
+        .writeTimeout(10, TimeUnit.SECONDS)
         .build()
 
-    // Verified live Gemini 3.x models (3.1-flash-lite is ultra-fast with much higher free quota)
+    // Verified live Gemini 3.x models (3.1-flash-lite is fastest with high free quota)
     private val fallbackModels = listOf(
         "gemini-3.1-flash-lite",
         "gemini-3.8-flash"
@@ -29,13 +30,32 @@ object GeminiClient {
     var lastUsedEngine: String = "Gemini"
         private set
 
-    // Keeps last 2 dialogue turns (compact for faster speed & lower token usage)
+    // Instant in-memory EN -> TH cache (0ms repeat lookup)
+    private val translationCache = ConcurrentHashMap<String, String>()
+
+    // Keeps last 2 dialogue turns (compact for speed)
     private val recentHistory = ArrayDeque<Pair<String, String>>()
 
     fun clearHistory() {
         synchronized(recentHistory) {
             recentHistory.clear()
         }
+    }
+
+    fun getCachedTranslation(context: Context, gameId: String, englishText: String): String? {
+        val norm = englishText.trim().lowercase()
+        val memHit = translationCache["$gameId|$norm"]
+        if (memHit != null) {
+            lastUsedEngine = "แคชในเครื่อง (0ms)"
+            return memHit
+        }
+        val packHit = GamePackManager.lookupExactLine(context, gameId, englishText)
+        if (packHit != null) {
+            translationCache["$gameId|$norm"] = packHit
+            lastUsedEngine = "ชุดภาษาเกม (0ms)"
+            return packHit
+        }
+        return null
     }
 
     suspend fun translateSubtitle(
@@ -45,8 +65,8 @@ object GeminiClient {
         model: String = "gemini-3.1-flash-lite",
         gameId: String = "gta6"
     ): String = withContext(Dispatchers.IO) {
-        val safeKey = apiKey.trim()
-        require(safeKey.isNotEmpty()) { "ยังไม่ได้ตั้งค่า Gemini API Key" }
+        // 0ms cache / offline pack lookup first
+        getCachedTranslation(context, gameId, englishText)?.let { return@withContext it }
 
         val preferred = model.trim().let {
             when {
@@ -55,6 +75,18 @@ object GeminiClient {
                 else -> it
             }
         }
+
+        // Ultra-fast free mode (~0.2s, unlimited)
+        if (preferred == "instant_free") {
+            val fast = FreeTranslateFallback.translateEnToTh(englishText)
+            lastUsedEngine = "แปลด่วนฟรี (~0.2 วิ)"
+            cacheAndRemember(gameId, englishText, fast)
+            return@withContext fast
+        }
+
+        val safeKey = apiKey.trim()
+        require(safeKey.isNotEmpty()) { "ยังไม่ได้ตั้งค่า Gemini API Key" }
+
         val modelsToTry = (listOf(preferred) + fallbackModels).distinct()
 
         val systemPrompt = GamePackManager.buildSystemPrompt(context, gameId)
@@ -63,7 +95,7 @@ object GeminiClient {
                 if (recentHistory.isNotEmpty()) {
                     append("ก่อนหน้า:\n")
                     for ((en, th) in recentHistory) {
-                        append("EN: ").append(en).append(" -> ").append(th).append("\n")
+                        append(en).append(" -> ").append(th).append("\n")
                     }
                     append("\n")
                 }
@@ -84,7 +116,7 @@ object GeminiClient {
                     useFastThinking = true
                 )
                 lastUsedEngine = candidateModel
-                rememberHistory(englishText, result)
+                cacheAndRemember(gameId, englishText, result)
                 return@withContext result
             } catch (e: HttpStatusException) {
                 if (index == 0) primaryError = e
@@ -102,7 +134,7 @@ object GeminiClient {
                             useFastThinking = false
                         )
                         lastUsedEngine = candidateModel
-                        rememberHistory(englishText, retryResult)
+                        cacheAndRemember(gameId, englishText, retryResult)
                         return@withContext retryResult
                     } catch (retryErr: Exception) {
                         if (index == 0) primaryError = retryErr
@@ -117,13 +149,11 @@ object GeminiClient {
             }
         }
 
-        // If Gemini Free Tier quota (429) is exhausted, fall back seamlessly to free translation
-        // so live subtitles & Thai voice keep running without stopping mid-game.
         if (sawRateLimit) {
             try {
                 val fallbackThai = FreeTranslateFallback.translateEnToTh(englishText)
                 lastUsedEngine = "แปลฟรีสำรอง (โควต้า Gemini ฟรีเต็ม)"
-                rememberHistory(englishText, fallbackThai)
+                cacheAndRemember(gameId, englishText, fallbackThai)
                 return@withContext fallbackThai
             } catch (_: Exception) {
             }
@@ -132,7 +162,11 @@ object GeminiClient {
         throw (primaryError ?: IllegalStateException("ไม่สามารถเชื่อมต่อ Gemini API ได้"))
     }
 
-    private fun rememberHistory(en: String, th: String) {
+    private fun cacheAndRemember(gameId: String, en: String, th: String) {
+        if (translationCache.size > 400) {
+            translationCache.clear()
+        }
+        translationCache["$gameId|${en.trim().lowercase()}"] = th
         synchronized(recentHistory) {
             if (recentHistory.size >= 2) recentHistory.removeFirst()
             recentHistory.addLast(en to th)
@@ -168,7 +202,7 @@ object GeminiClient {
         }
 
         val genConfig = JSONObject().apply {
-            put("temperature", 0.45)
+            put("temperature", 0.4)
             put("maxOutputTokens", 1024)
             if (useFastThinking && model.startsWith("gemini-3.8")) {
                 put("thinkingConfig", JSONObject().put("thinkingLevel", "LOW"))

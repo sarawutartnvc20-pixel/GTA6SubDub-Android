@@ -18,14 +18,16 @@ class SettingsActivity : AppCompatActivity() {
 
     private val geminiModels = listOf(
         "gemini-3.1-flash-lite",
+        "instant_free",
         "gemini-3.8-flash",
         "gemini-3.8-pro",
         "custom"
     )
     private val geminiModelLabels = listOf(
-        "gemini-3.1-flash-lite (เร็วสุด + โควต้าฟรีเยอะ — แนะนำเล่นสด)",
-        "gemini-3.8-flash (แปลสแลงดีสุด — ฟรีจำกัด 20 ครั้ง/วัน)",
-        "gemini-3.8-pro (แปลละเอียดสุด — ช้ากว่าเล็กน้อย)",
+        "gemini-3.1-flash-lite (~0.5–1 วิ · สแลง GTA + โควต้าฟรีเยอะ)",
+        "แปลด่วนฟรี (~0.2 วิ · ทันที ไม่จำกัดโควต้า)",
+        "gemini-3.8-flash (~1.5–2.5 วิ · สแลงดีสุด · ฟรี 20 ครั้ง/วัน)",
+        "gemini-3.8-pro (~3–4 วิ · แม่นสุด)",
         "กำหนดเอง (พิมพ์ชื่อโมเดลเอง)"
     )
 
@@ -97,7 +99,7 @@ class SettingsActivity : AppCompatActivity() {
         // Test BOTH Gemini translation AND Voice Dubbing in 1 tap
         binding.btnTestVoice.setOnClickListener {
             saveOnly()
-            if (prefs.geminiApiKey.isEmpty()) {
+            if (prefs.geminiModel != "instant_free" && prefs.geminiApiKey.isEmpty()) {
                 Toast.makeText(this, "กรุณาใส่ Gemini API Key ก่อนทดสอบครับ", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }

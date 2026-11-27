@@ -148,27 +148,27 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:buttonTint="#F472B6"
-                    android:text="Gemini TTS — แนะนำ (ใช้แค่ Gemini Key)"
+                    android:text="Gemini TTS (⏱ ~4–6 วิ · ใช้แค่ Gemini Key แต่ช้ากว่า)"
                     android:textColor="#FFFFFF"
-                    android:textSize="14sp" />
+                    android:textSize="13sp" />
 
                 <RadioButton
                     android:id="@+id/rbVoiceElevenLabs"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:buttonTint="#F472B6"
-                    android:text="ElevenLabs TTS (eleven_flash_v2_5)"
+                    android:text="ElevenLabs TTS (⏱ ~0.6–1 วิ · เสียงคนจริงไวสุด)"
                     android:textColor="#FFFFFF"
-                    android:textSize="14sp" />
+                    android:textSize="13sp" />
 
                 <RadioButton
                     android:id="@+id/rbVoiceAndroid"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:buttonTint="#F472B6"
-                    android:text="เสียงไทยในเครื่อง (Android TTS ฟรี 100%)"
+                    android:text="เสียงไทยในเครื่อง Android TTS (⏱ ทันที ~0.1 วิ · ฟรี)"
                     android:textColor="#FFFFFF"
-                    android:textSize="14sp" />
+                    android:textSize="13sp" />
             </RadioGroup>
 
             <!-- Gemini Voice Selector Box (shown only when Gemini TTS selected) -->

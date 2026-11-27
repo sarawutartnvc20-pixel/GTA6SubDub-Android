@@ -40,6 +40,7 @@ import com.metallic.chiaki.lib.Session
 import com.metallic.chiaki.lib.VideoFPSPreset
 import com.metallic.chiaki.lib.VideoResolutionPreset
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -65,6 +66,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
     private var isOcrBusy = false
     private var lastRecognizedText = ""
     private var pendingCandidateText = ""
+    private var translateJob: Job? = null
 
     private val cameraPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -79,7 +81,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         override fun run() {
             if (!isRunning) return
             captureFrameAndRunOcr()
-            ocrHandler.postDelayed(this, 500L)
+            ocrHandler.postDelayed(this, 250L)
         }
     }
 
@@ -168,8 +170,8 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
     }
 
     private fun startActiveSource() {
-        if (prefs.geminiApiKey.isEmpty()) {
-            Toast.makeText(this, "กรุณากรอก Gemini API Key ในหน้าตั้งค่าก่อนครับ", Toast.LENGTH_LONG).show()
+        if (prefs.geminiModel != "instant_free" && prefs.geminiApiKey.isEmpty()) {
+            Toast.makeText(this, "กรุณากรอก Gemini API Key (หรือเลือกโหมดแปลด่วนฟรี) ในหน้าตั้งค่าครับ", Toast.LENGTH_LONG).show()
             startActivity(Intent(this, SettingsActivity::class.java))
             return
         }
@@ -194,6 +196,8 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
     private fun stopActiveSource() {
         isRunning = false
         ocrHandler.removeCallbacks(ocrLoopRunnable)
+        translateJob?.cancel()
+        translateJob = null
         voiceRouter.stopAll()
         stopPs5Session()
         stopCameraCapture()
@@ -507,9 +511,13 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
                 lastRecognizedText = normalized
                 binding.tvLiveEnglish.text = "EN: $normalized"
 
-                lifecycleScope.launch {
+                // CRITICAL: Release OCR immediately (~25ms) so camera/PS5 never freezes waiting for API!
+                isOcrBusy = false
+
+                // Cancel any stale in-flight translation and start translating the newest subtitle immediately
+                translateJob?.cancel()
+                translateJob = lifecycleScope.launch {
                     translateAndDub(normalized)
-                    isOcrBusy = false
                 }
             }
             .addOnFailureListener {
@@ -559,33 +567,95 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
     }
 
     private suspend fun translateAndDub(englishText: String) {
+        val model = prefs.geminiModel
         val geminiKey = prefs.geminiApiKey
+
+        // Stage 0: Instant 0ms local cache or downloaded game pack hit
+        val cached = GeminiClient.getCachedTranslation(this, prefs.selectedGameId, englishText)
+        if (cached != null) {
+            withContext(Dispatchers.Main) {
+                binding.tvLiveThai.text = cached
+                binding.tvAudioModeHint.text = "แปล: ${GeminiClient.lastUsedEngine}"
+            }
+            enqueueVoiceIfEnabled(cached)
+            return
+        }
+
+        // Fast free-only mode (~0.2s total)
+        if (model == "instant_free") {
+            try {
+                val fastThai = GeminiClient.translateSubtitle(
+                    context = this,
+                    englishText = englishText,
+                    apiKey = geminiKey,
+                    model = "instant_free",
+                    gameId = prefs.selectedGameId
+                )
+                withContext(Dispatchers.Main) {
+                    binding.tvLiveThai.text = fastThai
+                    binding.tvAudioModeHint.text = "แปล: ${GeminiClient.lastUsedEngine}"
+                }
+                enqueueVoiceIfEnabled(fastThai)
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    binding.tvLiveThai.text = "Error: ${e.message}"
+                }
+            }
+            return
+        }
+
         if (geminiKey.isEmpty()) return
 
+        // Two-Stage Instant Subtitle:
+        // Stage 1: Fire fast ~0.25s draft in parallel so player sees Thai immediately while Gemini polishes GTA slang
+        var geminiFinished = false
+        val draftJob = lifecycleScope.launch {
+            try {
+                val draftThai = FreeTranslateFallback.translateEnToTh(englishText)
+                if (!geminiFinished) {
+                    withContext(Dispatchers.Main) {
+                        if (!geminiFinished) {
+                            binding.tvLiveThai.text = draftThai
+                            binding.tvAudioModeHint.text = "⚡ แปลด่วน (~0.2 วิ) · กำลังเกลาสำนวน GTA..."
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        // Stage 2: Raw uncensored GTA 6 slang translation from Gemini + Smart Queue voice
         try {
             val thaiText = GeminiClient.translateSubtitle(
                 context = this,
                 englishText = englishText,
                 apiKey = geminiKey,
-                model = prefs.geminiModel,
+                model = model,
                 gameId = prefs.selectedGameId
             )
+            geminiFinished = true
+            draftJob.cancel()
+
             withContext(Dispatchers.Main) {
                 binding.tvLiveThai.text = thaiText
                 binding.tvAudioModeHint.text = "แปล: ${GeminiClient.lastUsedEngine}"
             }
-
-            // Enqueue via Smart Speech Queue: never cuts off current sentence, max 1 waiting line
-            if (prefs.autoDubEnabled && !prefs.isMutedSubOnly) {
-                voiceRouter.enqueueSpeak(thaiText) { used ->
-                    runOnUiThread {
-                        binding.tvAudioModeHint.text = "แปล: ${GeminiClient.lastUsedEngine} · เสียง: $used"
-                    }
-                }
-            }
+            enqueueVoiceIfEnabled(thaiText)
         } catch (e: Exception) {
+            geminiFinished = true
+            draftJob.cancel()
             withContext(Dispatchers.Main) {
                 binding.tvLiveThai.text = "Error: ${e.message}"
+            }
+        }
+    }
+
+    private fun enqueueVoiceIfEnabled(thaiText: String) {
+        if (prefs.autoDubEnabled && !prefs.isMutedSubOnly) {
+            voiceRouter.enqueueSpeak(thaiText) { used ->
+                runOnUiThread {
+                    binding.tvAudioModeHint.text = "แปล: ${GeminiClient.lastUsedEngine} · เสียง: $used"
+                }
             }
         }
     }

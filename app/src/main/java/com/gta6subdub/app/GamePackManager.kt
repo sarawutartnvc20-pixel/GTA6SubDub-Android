@@ -128,6 +128,25 @@ object GamePackManager {
         }
     }
 
+    /**
+     * Checks if the downloaded game pack has an instant pre-translated EN -> TH line (0ms lookup).
+     */
+    fun lookupExactLine(context: Context, gameId: String, englishText: String): String? {
+        val pack = loadPackJson(context, gameId) ?: return null
+        val lines = pack.optJSONObject("lines") ?: return null
+        val direct = lines.optString(englishText.trim(), "")
+        if (direct.isNotEmpty()) return direct
+        val lowerKey = englishText.trim().lowercase()
+        val keys = lines.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            if (k.lowercase() == lowerKey) {
+                return lines.optString(k, "").takeIf { it.isNotEmpty() }
+            }
+        }
+        return null
+    }
+
     fun buildSystemPrompt(context: Context, gameId: String): String {
         val pack = loadPackJson(context, gameId)
             ?: return "แปลซับไตเติลเกมนี้เป็นภาษาไทยแนวภาษาพูดที่เป็นธรรมชาติ กระชับ ตรงอารมณ์ตัวละคร ตอบเฉพาะคำแปลภาษาไทยเท่านั้น ห้ามอธิบายเพิ่มเติม"

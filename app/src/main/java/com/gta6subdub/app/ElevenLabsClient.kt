@@ -39,7 +39,8 @@ object ElevenLabsClient {
         val safeVoice = voiceId.trim()
         if (safeKey.isEmpty() || safeVoice.isEmpty()) return@withContext
 
-        val url = "https://api.elevenlabs.io/v1/text-to-speech/$safeVoice?output_format=mp3_22050_32"
+        val url =
+            "https://api.elevenlabs.io/v1/text-to-speech/$safeVoice?output_format=mp3_22050_32&optimize_streaming_latency=4"
 
         val payload = JSONObject().apply {
             put("text", text)
