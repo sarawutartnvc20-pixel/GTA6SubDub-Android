@@ -53,7 +53,7 @@ class LiveControlActivity : AppCompatActivity() {
         }
 
         binding.btnOpenPsRemote.setOnClickListener {
-            val launchIntent = packageManager.getLaunchIntentForPackage("com.scee.psxandroid")
+            val launchIntent = PsRemotePlayHelper.createLaunchIntent(this)
             if (launchIntent != null) {
                 startActivity(launchIntent)
             } else {

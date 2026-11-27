@@ -58,7 +58,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.chipPsRemotePlay.setOnClickListener {
-            val launchIntent = packageManager.getLaunchIntentForPackage("com.scee.psxandroid")
+            val launchIntent = PsRemotePlayHelper.createLaunchIntent(this)
             if (launchIntent != null) {
                 startActivity(launchIntent)
             } else {
@@ -134,19 +134,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isPsRemotePlayInstalled(): Boolean {
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                packageManager.getPackageInfo(
-                    "com.scee.psxandroid",
-                    PackageManager.PackageInfoFlags.of(0)
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                packageManager.getPackageInfo("com.scee.psxandroid", 0)
-            }
-            true
-        } catch (_: PackageManager.NameNotFoundException) {
-            false
-        }
+        return PsRemotePlayHelper.isInstalled(this)
     }
 }
