@@ -3,11 +3,8 @@ package com.gta6subdub.app
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -53,30 +50,17 @@ class MainActivity : AppCompatActivity() {
             if (prefs.autoDubEnabled) {
                 prefs.isMutedSubOnly = false
             }
-            SubtitleStateBus.notifyStyleChanged()
             refreshDashboardStatus()
         }
 
+        // Chip 1: 2nd PSN Account Login
         binding.chipPsRemotePlay.setOnClickListener {
-            val launchIntent = PsRemotePlayHelper.createLaunchIntent(this)
-            if (launchIntent != null) {
-                startActivity(launchIntent)
-            } else {
-                Toast.makeText(
-                    this,
-                    "ยังไม่ได้ติดตั้งแอป PS Remote Play (ติดตั้งจาก Play Store ก่อนครับ)",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
+            startActivity(Intent(this, PsnAuthActivity::class.java))
         }
 
+        // Chip 2: Pair PS5 via PIN
         binding.chipOverlay.setOnClickListener {
-            startActivity(
-                Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:$packageName")
-                )
-            )
+            startActivity(Intent(this, Ps5PairActivity::class.java))
         }
 
         binding.chipGemini.setOnClickListener {
@@ -94,19 +78,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshDashboardStatus() {
-        val psInstalled = isPsRemotePlayInstalled()
-        val overlayGranted = Settings.canDrawOverlays(this)
+        val psnReady = prefs.isPsnLoggedIn
+        val ps5Paired = prefs.isPs5Paired
         val hasGemini = prefs.geminiApiKey.isNotEmpty()
         val hasEleven = prefs.elevenLabsApiKey.isNotEmpty()
 
-        binding.tvCheckPsRemote.text = if (psInstalled) "✓" else "✕"
+        binding.tvCheckPsRemote.text = if (psnReady) "✓" else "●"
         binding.tvCheckPsRemote.setTextColor(
-            if (psInstalled) 0xFF4ADE80.toInt() else 0xFFF87171.toInt()
+            if (psnReady) 0xFF4ADE80.toInt() else 0xFFFACC15.toInt()
         )
 
-        binding.tvCheckOverlay.text = if (overlayGranted) "✓" else "●"
+        binding.tvCheckOverlay.text = if (ps5Paired) "✓" else "●"
         binding.tvCheckOverlay.setTextColor(
-            if (overlayGranted) 0xFF4ADE80.toInt() else 0xFFFACC15.toInt()
+            if (ps5Paired) 0xFF4ADE80.toInt() else 0xFFFACC15.toInt()
         )
 
         binding.tvCheckGemini.text = if (hasGemini) "✓" else "●"
@@ -119,8 +103,8 @@ class MainActivity : AppCompatActivity() {
             if (hasEleven) 0xFF4ADE80.toInt() else 0xFFFACC15.toInt()
         )
 
-        val allReady = psInstalled && overlayGranted && hasGemini
-        binding.tvReadyBadge.text = if (allReady) "✓ พร้อมใช้งาน" else "● ยังตั้งค่าไม่ครบ"
+        val allReady = psnReady && ps5Paired && hasGemini
+        binding.tvReadyBadge.text = if (allReady) "✓ พร้อมใช้งาน" else "● แตะด้านล่างเพื่อตั้งค่า PSN / PS5"
         binding.tvReadyBadge.setTextColor(
             if (allReady) 0xFF4ADE80.toInt() else 0xFFFACC15.toInt()
         )
@@ -131,9 +115,5 @@ class MainActivity : AppCompatActivity() {
         } else {
             "ปิดเสียง · แสดงเฉพาะซับ (แตะเพื่อสลับ)"
         }
-    }
-
-    private fun isPsRemotePlayInstalled(): Boolean {
-        return PsRemotePlayHelper.isInstalled(this)
     }
 }

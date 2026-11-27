@@ -226,7 +226,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="PS Remote Play"
+                    android:text="บัญชี PSN (ที่ 2)"
                     android:textColor="#FFFFFF"
                     android:textSize="13sp"
                     android:textStyle="bold" />
@@ -235,8 +235,8 @@
                     android:id="@+id/tvCheckPsRemote"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="✓"
-                    android:textColor="#4ADE80"
+                    android:text="●"
+                    android:textColor="#FACC15"
                     android:textSize="16sp"
                     android:textStyle="bold" />
             </LinearLayout>
@@ -256,7 +256,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="หน้าต่างลอย"
+                    android:text="จับคู่ PS5"
                     android:textColor="#FFFFFF"
                     android:textSize="13sp"
                     android:textStyle="bold" />
