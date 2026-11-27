@@ -16,7 +16,7 @@ jobs:
       - name: Install native build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm ninja-build pkg-config python3-protobuf
+          sudo apt-get install -y nasm ninja-build pkg-config protobuf-compiler python3-protobuf
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
