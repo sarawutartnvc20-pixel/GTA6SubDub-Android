@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
@@ -27,7 +28,7 @@ class AndroidTtsSpeaker(context: Context) : TextToSpeech.OnInitListener {
             tts?.setSpeechRate(1.12f)
             tts?.setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )
@@ -47,7 +48,7 @@ class AndroidTtsSpeaker(context: Context) : TextToSpeech.OnInitListener {
     fun speak(text: String) {
         if (!isReady || text.isBlank()) return
         val attrs = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_ASSISTANT)
+            .setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
             .build()
         val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
@@ -55,7 +56,12 @@ class AndroidTtsSpeaker(context: Context) : TextToSpeech.OnInitListener {
             .build()
         focusRequest = req
         audioManager.requestAudioFocus(req)
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "gta6_${System.currentTimeMillis()}")
+
+        val params = Bundle().apply {
+            putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
+        }
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "gta6_${System.currentTimeMillis()}")
     }
 
     fun stop() {

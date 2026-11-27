@@ -1,6 +1,8 @@
 package com.gta6subdub.app
 
 import android.os.Bundle
+import android.view.View
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -13,6 +15,23 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var prefs: PrefsStore
     private lateinit var voiceRouter: VoiceRouter
+
+    private val geminiModels = listOf(
+        "gemini-3.8-flash",
+        "gemini-3.8-flash-lite",
+        "gemini-3.8-pro",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "custom"
+    )
+    private val geminiModelLabels = listOf(
+        "gemini-3.8-flash (ดีที่สุด + เร็ว — แนะนำ)",
+        "gemini-3.8-flash-lite (เร็วสุด + ใช้ฟรีได้ดี)",
+        "gemini-3.8-pro (แปลสแลงแม่นสุด — ช้ากว่าเล็กน้อย)",
+        "gemini-2.5-flash-lite (รุ่นเบา สำรองฟรี)",
+        "gemini-2.0-flash (รุ่นเสถียร สำรอง)",
+        "กำหนดเอง (พิมพ์ชื่อโมเดลเอง)"
+    )
 
     private val geminiVoices = listOf("Fenrir", "Charon", "Kore", "Puck", "Aoede")
     private val geminiVoiceLabels = listOf(
@@ -32,10 +51,31 @@ class SettingsActivity : AppCompatActivity() {
         voiceRouter = VoiceRouter(this)
 
         binding.etGeminiKey.setText(prefs.geminiApiKey)
-        binding.etGeminiModel.setText(prefs.geminiModel)
         binding.etElevenKey.setText(prefs.elevenLabsApiKey)
         binding.etVoiceId.setText(prefs.elevenLabsVoiceId)
         binding.switchAutoDub.isChecked = prefs.autoDubEnabled
+
+        // Setup Model Dropdown
+        val modelAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, geminiModelLabels)
+        binding.spinnerGeminiModel.adapter = modelAdapter
+        val savedModel = prefs.geminiModel
+        val modelIdx = geminiModels.indexOf(savedModel)
+        if (modelIdx >= 0) {
+            binding.spinnerGeminiModel.setSelection(modelIdx)
+            binding.tilCustomModel.visibility = View.GONE
+        } else {
+            binding.spinnerGeminiModel.setSelection(geminiModels.lastIndex)
+            binding.etGeminiModel.setText(savedModel)
+            binding.tilCustomModel.visibility = View.VISIBLE
+        }
+
+        binding.spinnerGeminiModel.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val isCustom = geminiModels[position] == "custom"
+                binding.tilCustomModel.visibility = if (isCustom) View.VISIBLE else View.GONE
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
 
         when (prefs.voiceEngine) {
             "elevenlabs" -> binding.rbVoiceElevenLabs.isChecked = true
@@ -43,25 +83,44 @@ class SettingsActivity : AppCompatActivity() {
             else -> binding.rbVoiceGemini.isChecked = true
         }
 
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, geminiVoiceLabels)
-        binding.spinnerGeminiVoice.adapter = adapter
+        val voiceAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, geminiVoiceLabels)
+        binding.spinnerGeminiVoice.adapter = voiceAdapter
         val idx = geminiVoices.indexOf(prefs.geminiTtsVoice).coerceAtLeast(0)
         binding.spinnerGeminiVoice.setSelection(idx)
 
+        // Test BOTH Gemini translation AND Voice Dubbing in 1 tap!
         binding.btnTestVoice.setOnClickListener {
             saveOnly()
-            binding.btnTestVoice.text = "⏳ กำลังสร้างเสียงพากย์..."
+            if (prefs.geminiApiKey.isEmpty()) {
+                Toast.makeText(this, "กรุณาใส่ Gemini API Key ก่อนทดสอบครับ", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            binding.btnTestVoice.text = "⏳ กำลังทดสอบแปล + พากย์เสียง..."
             lifecycleScope.launch {
-                val engineUsed = voiceRouter.speak(
-                    thaiText = "เฮ้ยเพื่อน เชี่ยอะไรวะเนี่ย รีบขึ้นรถแล้วซิ่งหนีตำรวจไวซ์ซิตี้เร็ว!",
-                    forceEvenIfMuted = true
-                )
-                binding.btnTestVoice.text = "🔊 ทดสอบเสียงพากย์ (ประโยค GTA 6)"
-                Toast.makeText(
-                    this@SettingsActivity,
-                    "เล่นเสียงผ่าน: $engineUsed",
-                    Toast.LENGTH_SHORT
-                ).show()
+                try {
+                    val sampleEn = "What the fuck are you doing, man? Get in the whip, Five-O is coming!"
+                    val translatedTh = GeminiClient.translateSubtitle(
+                        context = this@SettingsActivity,
+                        englishText = sampleEn,
+                        apiKey = prefs.geminiApiKey,
+                        model = prefs.geminiModel,
+                        gameId = prefs.selectedGameId
+                    )
+                    val engineUsed = voiceRouter.speak(thaiText = translatedTh, forceEvenIfMuted = true)
+                    binding.btnTestVoice.text = "🔊 ทดสอบแปล + พากย์เสียง (ผ่าน ✓)"
+                    Toast.makeText(
+                        this@SettingsActivity,
+                        "แปล: $translatedTh\nเสียง: $engineUsed",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } catch (e: Exception) {
+                    binding.btnTestVoice.text = "🔊 ทดสอบเสียงพากย์ (ประโยค GTA 6)"
+                    Toast.makeText(
+                        this@SettingsActivity,
+                        "ทดสอบไม่สำเร็จ: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
 
@@ -79,7 +138,15 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun saveOnly() {
         prefs.geminiApiKey = binding.etGeminiKey.text?.toString().orEmpty()
-        prefs.geminiModel = binding.etGeminiModel.text?.toString().orEmpty()
+
+        val selectedModelPos = binding.spinnerGeminiModel.selectedItemPosition.coerceIn(0, geminiModels.lastIndex)
+        val chosenModel = geminiModels[selectedModelPos]
+        prefs.geminiModel = if (chosenModel == "custom") {
+            binding.etGeminiModel.text?.toString().orEmpty()
+        } else {
+            chosenModel
+        }
+
         prefs.elevenLabsApiKey = binding.etElevenKey.text?.toString().orEmpty()
         prefs.elevenLabsVoiceId = binding.etVoiceId.text?.toString().orEmpty()
         prefs.autoDubEnabled = binding.switchAutoDub.isChecked

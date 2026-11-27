@@ -78,7 +78,7 @@ object ElevenLabsClient {
     private fun playFile(context: Context, file: File) {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val attrs = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_ASSISTANT)
+            .setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
             .build()
 
@@ -93,6 +93,7 @@ object ElevenLabsClient {
             mediaPlayer = MediaPlayer().apply {
                 setAudioAttributes(attrs)
                 setDataSource(file.absolutePath)
+                setVolume(1.0f, 1.0f)
                 setOnCompletionListener {
                     focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
                 }

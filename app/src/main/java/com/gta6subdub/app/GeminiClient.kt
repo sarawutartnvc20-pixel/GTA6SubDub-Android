@@ -14,11 +14,19 @@ import java.util.concurrent.TimeUnit
 
 object GeminiClient {
     private val client = OkHttpClient.Builder()
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(12, TimeUnit.SECONDS)
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    // Keeps last 4 dialogue turns so Gemini maintains pronoun & character context across lines
+    private val fallbackModels = listOf(
+        "gemini-3.8-flash",
+        "gemini-3.8-flash-lite",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash"
+    )
+
+    // Keeps last 3 dialogue turns so Gemini maintains pronoun & character context across lines
     private val recentHistory = ArrayDeque<Pair<String, String>>()
 
     fun clearHistory() {
@@ -31,22 +39,22 @@ object GeminiClient {
         context: Context,
         englishText: String,
         apiKey: String,
-        model: String = "gemini-2.5-flash",
+        model: String = "gemini-3.8-flash",
         gameId: String = "gta6"
     ): String = withContext(Dispatchers.IO) {
         val safeKey = apiKey.trim()
         require(safeKey.isNotEmpty()) { "ยังไม่ได้ตั้งค่า Gemini API Key" }
 
-        val safeModel = model.trim().ifEmpty { "gemini-2.5-flash" }
-        val url =
-            "https://generativelanguage.googleapis.com/v1beta/models/$safeModel:generateContent?key=$safeKey"
+        val preferred = model.trim().let {
+            if (it.isEmpty() || it == "gemini-2.5-flash") "gemini-3.8-flash" else it
+        }
+        val modelsToTry = (listOf(preferred) + fallbackModels).distinct()
 
         val systemPrompt = GamePackManager.buildSystemPrompt(context, gameId)
-
         val userPrompt = buildString {
             synchronized(recentHistory) {
                 if (recentHistory.isNotEmpty()) {
-                    append("บริบทบทพูดก่อนหน้า (เพื่อความต่อเนื่องของสรรพนาม):\n")
+                    append("บริบทก่อนหน้า:\n")
                     for ((en, th) in recentHistory) {
                         append("EN: ").append(en).append(" -> TH: ").append(th).append("\n")
                     }
@@ -55,6 +63,66 @@ object GeminiClient {
             }
             append("แปลประโยคนี้:\n").append(englishText)
         }
+
+        var lastError: Exception? = null
+        for (candidateModel in modelsToTry) {
+            try {
+                val result = callGenerateContent(
+                    apiKey = safeKey,
+                    model = candidateModel,
+                    systemPrompt = systemPrompt,
+                    userPrompt = userPrompt,
+                    useFastThinking = true
+                )
+                synchronized(recentHistory) {
+                    if (recentHistory.size >= 3) recentHistory.removeFirst()
+                    recentHistory.addLast(englishText to result)
+                }
+                return@withContext result
+            } catch (e: HttpStatusException) {
+                lastError = e
+                // If thinkingConfig isn't supported on this model (400), retry same model without thinkingConfig
+                if (e.code == 400) {
+                    try {
+                        val retryResult = callGenerateContent(
+                            apiKey = safeKey,
+                            model = candidateModel,
+                            systemPrompt = systemPrompt,
+                            userPrompt = userPrompt,
+                            useFastThinking = false
+                        )
+                        synchronized(recentHistory) {
+                            if (recentHistory.size >= 3) recentHistory.removeFirst()
+                            recentHistory.addLast(englishText to retryResult)
+                        }
+                        return@withContext retryResult
+                    } catch (retryErr: Exception) {
+                        lastError = retryErr
+                    }
+                }
+                if (e.code == 404 || e.code == 429) {
+                    continue
+                }
+            } catch (e: Exception) {
+                lastError = e
+                continue
+            }
+        }
+
+        throw (lastError ?: IllegalStateException("ไม่สามารถเชื่อมต่อ Gemini API ได้"))
+    }
+
+    private class HttpStatusException(val code: Int, message: String) : IllegalStateException(message)
+
+    private fun callGenerateContent(
+        apiKey: String,
+        model: String,
+        systemPrompt: String,
+        userPrompt: String,
+        useFastThinking: Boolean
+    ): String {
+        val url =
+            "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
 
         val safetySettings = JSONArray().apply {
             listOf(
@@ -69,6 +137,19 @@ object GeminiClient {
                         put("threshold", "BLOCK_NONE")
                     }
                 )
+            }
+        }
+
+        val genConfig = JSONObject().apply {
+            put("temperature", 0.45)
+            put("maxOutputTokens", 512)
+            if (useFastThinking) {
+                // Gemini 3+ uses thinkingLevel="MINIMAL"; Gemini 2.5 uses thinkingBudget=0
+                if (model.startsWith("gemini-3")) {
+                    put("thinkingConfig", JSONObject().put("thinkingLevel", "MINIMAL"))
+                } else if (model.startsWith("gemini-2.5")) {
+                    put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+                }
             }
         }
 
@@ -90,13 +171,7 @@ object GeminiClient {
                 )
             )
             put("safetySettings", safetySettings)
-            put(
-                "generationConfig",
-                JSONObject().apply {
-                    put("temperature", 0.45)
-                    put("maxOutputTokens", 140)
-                }
-            )
+            put("generationConfig", genConfig)
         }
 
         val request = Request.Builder()
@@ -107,7 +182,10 @@ object GeminiClient {
         client.newCall(request).execute().use { response ->
             val bodyStr = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                throw IllegalStateException("Gemini API error (${response.code}): $bodyStr")
+                throw HttpStatusException(
+                    response.code,
+                    "Gemini API error (${response.code} / $model): $bodyStr"
+                )
             }
 
             val root = JSONObject(bodyStr)
@@ -124,7 +202,10 @@ object GeminiClient {
 
             val sb = StringBuilder()
             for (i in 0 until parts.length()) {
-                sb.append(parts.getJSONObject(i).optString("text", ""))
+                val part = parts.getJSONObject(i)
+                // Skip internal chain-of-thought parts if present on Gemini 3+
+                if (part.optBoolean("thought", false)) continue
+                sb.append(part.optString("text", ""))
             }
             val result = sb.toString()
                 .trim()
@@ -135,13 +216,7 @@ object GeminiClient {
             if (result.isEmpty()) {
                 throw IllegalStateException("คำแปลว่างเปล่า")
             }
-
-            synchronized(recentHistory) {
-                if (recentHistory.size >= 4) recentHistory.removeFirst()
-                recentHistory.addLast(englishText to result)
-            }
-
-            result
+            return result
         }
     }
 }

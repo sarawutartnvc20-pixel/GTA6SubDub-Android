@@ -11,13 +11,13 @@ class PrefsStore(context: Context) {
         set(value) = prefs.edit().putString("gemini_api_key", value.trim()).apply()
 
     var geminiModel: String
-        get() = prefs.getString("gemini_model", "gemini-2.5-flash")
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?: "gemini-2.5-flash"
+        get() {
+            val saved = prefs.getString("gemini_model", "gemini-3.8-flash")?.trim().orEmpty()
+            return if (saved.isEmpty() || saved == "gemini-2.5-flash") "gemini-3.8-flash" else saved
+        }
         set(value) = prefs.edit().putString(
             "gemini_model",
-            value.trim().ifEmpty { "gemini-2.5-flash" }
+            value.trim().ifEmpty { "gemini-3.8-flash" }
         ).apply()
 
     // Voice engine: "gemini", "elevenlabs", or "android"

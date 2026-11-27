@@ -37,6 +37,7 @@ import com.metallic.chiaki.lib.Session
 import com.metallic.chiaki.lib.VideoFPSPreset
 import com.metallic.chiaki.lib.VideoResolutionPreset
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -62,6 +63,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
     private var isOcrBusy = false
     private var lastRecognizedText = ""
     private var lastApiCallMs = 0L
+    private var ttsJob: Job? = null
 
     private val cameraPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -173,6 +175,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
     private fun stopActiveSource() {
         isRunning = false
         ocrHandler.removeCallbacks(ocrLoopRunnable)
+        ttsJob?.cancel()
         voiceRouter.stopAll()
         stopPs5Session()
         stopCameraCapture()
@@ -439,7 +442,13 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
             }
 
             if (prefs.autoDubEnabled && !prefs.isMutedSubOnly) {
-                voiceRouter.speak(thaiText)
+                ttsJob?.cancel()
+                ttsJob = lifecycleScope.launch {
+                    val used = voiceRouter.speak(thaiText)
+                    withContext(Dispatchers.Main) {
+                        binding.tvAudioModeHint.text = "เสียงล่าสุด: $used"
+                    }
+                }
             }
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
