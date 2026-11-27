@@ -5,8 +5,10 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -17,12 +19,15 @@ import java.util.concurrent.TimeUnit
 
 object ElevenLabsClient {
     private val client = OkHttpClient.Builder()
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(12, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(18, TimeUnit.SECONDS)
         .build()
 
+    @Volatile
     private var mediaPlayer: MediaPlayer? = null
     private var focusRequest: AudioFocusRequest? = null
+    @Volatile
+    private var activeCompletion: CompletableDeferred<Unit>? = null
 
     suspend fun synthesizeAndPlay(
         context: Context,
@@ -70,12 +75,19 @@ object ElevenLabsClient {
         val outFile = File(context.cacheDir, "tts_latest.mp3")
         outFile.writeBytes(bytes)
 
+        val done = CompletableDeferred<Unit>()
         withContext(Dispatchers.Main) {
-            playFile(context, outFile)
+            playFile(context, outFile, done)
+        }
+        withTimeoutOrNull(12000L) {
+            done.await()
         }
     }
 
-    private fun playFile(context: Context, file: File) {
+    private fun playFile(context: Context, file: File, done: CompletableDeferred<Unit>) {
+        stopPlayback(context)
+        activeCompletion = done
+
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val attrs = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -89,13 +101,18 @@ object ElevenLabsClient {
         audioManager.requestAudioFocus(req)
 
         try {
-            mediaPlayer?.release()
             mediaPlayer = MediaPlayer().apply {
                 setAudioAttributes(attrs)
                 setDataSource(file.absolutePath)
                 setVolume(1.0f, 1.0f)
                 setOnCompletionListener {
                     focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+                    done.complete(Unit)
+                }
+                setOnErrorListener { _, _, _ ->
+                    focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+                    done.complete(Unit)
+                    true
                 }
                 prepare()
                 start()
@@ -103,10 +120,13 @@ object ElevenLabsClient {
         } catch (e: Exception) {
             e.printStackTrace()
             focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+            done.complete(Unit)
         }
     }
 
     fun stopPlayback(context: Context) {
+        activeCompletion?.complete(Unit)
+        activeCompletion = null
         try {
             mediaPlayer?.stop()
             mediaPlayer?.release()
@@ -115,5 +135,6 @@ object ElevenLabsClient {
         mediaPlayer = null
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        focusRequest = null
     }
 }

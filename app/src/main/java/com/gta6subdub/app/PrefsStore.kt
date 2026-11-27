@@ -12,16 +12,16 @@ class PrefsStore(context: Context) {
 
     var geminiModel: String
         get() {
-            val saved = prefs.getString("gemini_model", "gemini-3.8-flash")?.trim().orEmpty()
+            val saved = prefs.getString("gemini_model", "gemini-3.1-flash-lite")?.trim().orEmpty()
             return when {
-                saved.isEmpty() || saved == "gemini-2.5-flash" || saved == "gemini-2.0-flash" -> "gemini-3.8-flash"
+                saved.isEmpty() || saved == "gemini-2.5-flash" || saved == "gemini-2.0-flash" -> "gemini-3.1-flash-lite"
                 saved == "gemini-3.8-flash-lite" || saved == "gemini-2.5-flash-lite" -> "gemini-3.1-flash-lite"
                 else -> saved
             }
         }
         set(value) = prefs.edit().putString(
             "gemini_model",
-            value.trim().ifEmpty { "gemini-3.8-flash" }
+            value.trim().ifEmpty { "gemini-3.1-flash-lite" }
         ).apply()
 
     // PS5 Remote Play resolution: "360p", "540p", "720p", "1080p"

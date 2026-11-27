@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -16,6 +17,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.util.Size
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
@@ -38,7 +40,6 @@ import com.metallic.chiaki.lib.Session
 import com.metallic.chiaki.lib.VideoFPSPreset
 import com.metallic.chiaki.lib.VideoResolutionPreset
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -63,8 +64,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private var isOcrBusy = false
     private var lastRecognizedText = ""
-    private var lastApiCallMs = 0L
-    private var ttsJob: Job? = null
+    private var pendingCandidateText = ""
 
     private val cameraPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -79,7 +79,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         override fun run() {
             if (!isRunning) return
             captureFrameAndRunOcr()
-            ocrHandler.postDelayed(this, 650L)
+            ocrHandler.postDelayed(this, 500L)
         }
     }
 
@@ -126,7 +126,6 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         binding.btnMuteToggle.setOnClickListener {
             prefs.isMutedSubOnly = !prefs.isMutedSubOnly
             if (prefs.isMutedSubOnly) {
-                ttsJob?.cancel()
                 voiceRouter.stopAll()
             }
             refreshAudioButtons()
@@ -137,7 +136,6 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
             if (prefs.autoDubEnabled) {
                 prefs.isMutedSubOnly = false
             } else {
-                ttsJob?.cancel()
                 voiceRouter.stopAll()
             }
             refreshAudioButtons()
@@ -157,9 +155,12 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         binding.btnSwitchSource.text = if (isCamera) "โหมด: กล้อง" else "โหมด: PS5"
         binding.tvQualityBadge.text = if (isCamera) "CAM" else prefs.ps5Resolution
         binding.cameraScanGuide.visibility = if (isCamera) View.VISIBLE else View.GONE
+        if (!isCamera) {
+            binding.texturePs5Stream.setTransform(Matrix())
+        }
         if (!isRunning) {
             binding.tvVideoPlaceholder.text = if (isCamera) {
-                "โหมดกล้องส่องทีวี: กด ▶ เริ่ม แล้วหันกล้องส่องซับไตเติลบนทีวี"
+                "โหมดกล้องส่องทีวี: กด ▶ เริ่ม แล้ววางซับอังกฤษให้อยู่ในแถบสีเหลือง"
             } else {
                 "โหมด PS5 Remote (${prefs.ps5Resolution}): กด ▶ เริ่ม เพื่อเชื่อมภาพ\n(แตะปุ่ม ${prefs.ps5Resolution} ด้านล่างเพื่อปรับ 360p / 540p / 720p / 1080p)"
             }
@@ -175,6 +176,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
 
         GeminiClient.clearHistory()
         lastRecognizedText = ""
+        pendingCandidateText = ""
 
         if (prefs.captureMode == "camera") {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -192,7 +194,6 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
     private fun stopActiveSource() {
         isRunning = false
         ocrHandler.removeCallbacks(ocrLoopRunnable)
-        ttsJob?.cancel()
         voiceRouter.stopAll()
         stopPs5Session()
         stopCameraCapture()
@@ -212,6 +213,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         }
 
         try {
+            binding.texturePs5Stream.setTransform(Matrix())
             updateStreamUI(true, "● กำลังเชื่อม PS5...")
             binding.tvVideoPlaceholder.visibility = View.GONE
             binding.tvLiveThai.text = "กำลังเชื่อมต่อ PS5 (${prefs.ps5Host} · ${prefs.ps5Resolution})..."
@@ -274,7 +276,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
             chiakiSession = session
             isRunning = true
             ocrHandler.removeCallbacks(ocrLoopRunnable)
-            ocrHandler.postDelayed(ocrLoopRunnable, 1000L)
+            ocrHandler.postDelayed(ocrLoopRunnable, 800L)
         } catch (e: Exception) {
             e.printStackTrace()
             stopActiveSource()
@@ -296,7 +298,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         }
     }
 
-    // MARK: - Mode 2: Rear Camera OCR (TV / Monitor)
+    // MARK: - Mode 2: Rear Camera OCR (Unsquashed Aspect-Ratio + Continuous Autofocus)
 
     @SuppressLint("MissingPermission")
     private fun startCameraCapture() {
@@ -313,19 +315,30 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
             } ?: manager.cameraIdList.firstOrNull()
                 ?: throw IllegalStateException("ไม่พบกล้องในเครื่อง")
 
+            val characteristics = manager.getCameraCharacteristics(backCameraId)
+            val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            val previewSize = chooseBestPreviewSize(map?.getOutputSizes(SurfaceTexture::class.java))
+
             val thread = HandlerThread("CameraOcrThread").apply { start() }
             cameraThread = thread
             cameraHandler = Handler(thread.looper)
 
             binding.tvVideoPlaceholder.visibility = View.GONE
+            binding.cameraScanGuide.visibility = View.VISIBLE
             updateStreamUI(true, "● กำลังแปล (กล้อง)")
-            binding.tvLiveThai.text = "หันกล้องไปที่ซับไตเติลบนทีวี..."
+            binding.tvLiveThai.text = "เล็งซับไตเติลให้อยู่ในแถบสีเหลือง..."
+
+            configureCameraTransform(
+                viewWidth = binding.texturePs5Stream.width,
+                viewHeight = binding.texturePs5Stream.height,
+                previewSize = previewSize
+            )
 
             manager.openCamera(backCameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
                     cameraDevice = camera
                     val surfaceTexture = binding.texturePs5Stream.surfaceTexture ?: return
-                    surfaceTexture.setDefaultBufferSize(1280, 720)
+                    surfaceTexture.setDefaultBufferSize(previewSize.width, previewSize.height)
                     streamSurface?.release()
                     val previewSurface = Surface(surfaceTexture)
                     streamSurface = previewSurface
@@ -351,7 +364,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
                                     session.setRepeatingRequest(requestBuilder.build(), null, cameraHandler)
                                     isRunning = true
                                     ocrHandler.removeCallbacks(ocrLoopRunnable)
-                                    ocrHandler.postDelayed(ocrLoopRunnable, 600L)
+                                    ocrHandler.postDelayed(ocrLoopRunnable, 500L)
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                 }
@@ -386,6 +399,44 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         }
     }
 
+    private fun chooseBestPreviewSize(sizes: Array<Size>?): Size {
+        if (sizes.isNullOrEmpty()) return Size(1280, 720)
+        // Prefer crisp 16:9 size closest to 1280x720
+        val candidates = sizes.filter { it.width >= 960 && it.width <= 1920 }
+        val pool = if (candidates.isNotEmpty()) candidates else sizes.toList()
+        return pool.minByOrNull { abs(it.width - 1280) + abs(it.height - 720) } ?: Size(1280, 720)
+    }
+
+    /**
+     * Prevents the portrait camera buffer (e.g. 720x1280) from being squashed flat inside
+     * the wide 16:9 TextureView by applying a 1:1 aspect-preserving center-crop Matrix.
+     */
+    private fun configureCameraTransform(viewWidth: Int, viewHeight: Int, previewSize: Size) {
+        if (viewWidth <= 0 || viewHeight <= 0) return
+
+        // On portrait phone screens, Camera2 rotates the sensor buffer so rendered aspect is (min / max)
+        val isDevicePortrait = resources.configuration.orientation ==
+            android.content.res.Configuration.ORIENTATION_PORTRAIT
+        val bufW = if (isDevicePortrait) minOf(previewSize.width, previewSize.height).toFloat()
+        else maxOf(previewSize.width, previewSize.height).toFloat()
+        val bufH = if (isDevicePortrait) maxOf(previewSize.width, previewSize.height).toFloat()
+        else minOf(previewSize.width, previewSize.height).toFloat()
+
+        val viewW = viewWidth.toFloat()
+        val viewH = viewHeight.toFloat()
+
+        val currentScaleX = viewW / bufW
+        val currentScaleY = viewH / bufH
+        val targetScale = maxOf(currentScaleX, currentScaleY)
+
+        val scaleX = targetScale / currentScaleX
+        val scaleY = targetScale / currentScaleY
+
+        val matrix = Matrix()
+        matrix.setScale(scaleX, scaleY, viewW / 2f, viewH / 2f)
+        binding.texturePs5Stream.setTransform(matrix)
+    }
+
     private fun stopCameraCapture() {
         try {
             cameraCaptureSession?.close()
@@ -399,9 +450,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         cameraHandler = null
     }
 
-    // MARK: - OCR -> Gemini (GTA 6 Slang Pack) -> VoiceRouter (Gemini TTS / ElevenLabs / Android)
-
-    private var pendingCandidateText = ""
+    // MARK: - OCR -> Gemini (GTA 6 Slang Pack) -> Smart Speech Queue
 
     private fun captureFrameAndRunOcr() {
         if (isOcrBusy || !binding.texturePs5Stream.isAvailable) return
@@ -412,8 +461,10 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         }
 
         isOcrBusy = true
-        // Crop bottom 32% (subtitle strip) so menus/logos above don't trigger OCR
-        val cropTop = (fullBitmap.height * 0.68f).toInt().coerceIn(0, fullBitmap.height - 1)
+        val isCamera = prefs.captureMode == "camera"
+        // Crop bottom subtitle zone (35% in Camera mode for forgiving aim, 32% in PS5 mode)
+        val cropStartRatio = if (isCamera) 0.65f else 0.68f
+        val cropTop = (fullBitmap.height * cropStartRatio).toInt().coerceIn(0, fullBitmap.height - 1)
         val cropHeight = (fullBitmap.height - cropTop).coerceAtLeast(1)
         val cropped = Bitmap.createBitmap(fullBitmap, 0, cropTop, fullBitmap.width, cropHeight)
         fullBitmap.recycle()
@@ -426,7 +477,12 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
                     .replace(Regex("\\s+"), " ")
                     .trim()
 
-                if (!isLikelyEnglishSubtitle(normalized)) {
+                // In Camera mode, show live raw OCR feedback immediately so user knows aiming works
+                if (isCamera && normalized.length >= 4) {
+                    binding.tvLiveEnglish.text = "EN: $normalized"
+                }
+
+                if (!isLikelyEnglishSubtitle(normalized, relaxed = isCamera)) {
                     pendingCandidateText = ""
                     isOcrBusy = false
                     return@addOnSuccessListener
@@ -437,8 +493,11 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
                     return@addOnSuccessListener
                 }
 
-                // Require 2 consecutive matching frames so fading/changing text doesn't waste API quota
-                if (!isSimilarText(pendingCandidateText, normalized)) {
+                // In Camera mode OR clear full sentences (>= 4 words), translate immediately on 1st frame!
+                // Only require 2-frame stability for short 2-3 word fragments in PS5 mode.
+                val wordCount = normalized.split(" ").count { it.length >= 2 }
+                val needsTwoFrames = !isCamera && wordCount < 4
+                if (needsTwoFrames && !isSimilarText(pendingCandidateText, normalized)) {
                     pendingCandidateText = normalized
                     isOcrBusy = false
                     return@addOnSuccessListener
@@ -446,7 +505,6 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
 
                 pendingCandidateText = ""
                 lastRecognizedText = normalized
-                lastApiCallMs = System.currentTimeMillis()
                 binding.tvLiveEnglish.text = "EN: $normalized"
 
                 lifecycleScope.launch {
@@ -460,11 +518,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
             }
     }
 
-    /**
-     * Rejects garbled Thai-menu misreads (e.g. "YŠo 1isoJðu"), URLs, and ALL-CAPS HUD legends
-     * so we never waste Gemini Free Tier quota on non-subtitle screens.
-     */
-    private fun isLikelyEnglishSubtitle(text: String): Boolean {
+    private fun isLikelyEnglishSubtitle(text: String, relaxed: Boolean): Boolean {
         if (text.length < 6) return false
         val lower = text.lowercase()
         if (lower.contains("http") || lower.contains("www.") || lower.contains(".net") ||
@@ -473,20 +527,19 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
             return false
         }
 
-        // Reject garbled non-ASCII diacritics (from Latin OCR misreading Thai menus)
-        val asciiCount = text.count { it.code in 32..126 }
-        if (asciiCount.toFloat() / text.length < 0.92f) return false
+        val asciiRatio = text.count { it.code in 32..126 }.toFloat() / text.length
+        val minAscii = if (relaxed) 0.84f else 0.92f
+        if (asciiRatio < minAscii) return false
 
-        // Real game subtitles are mixed-case sentences with at least 2 clean English words
         val hasLowercase = text.any { it in 'a'..'z' }
         if (!hasLowercase) return false
 
         val words = text.split(" ").filter { it.isNotBlank() }
         val cleanEnglishWords = words.count { w ->
             val letters = w.count { it in 'A'..'Z' || it in 'a'..'z' }
-            letters >= 2 && letters.toFloat() / w.length >= 0.65f
+            letters >= 2 && letters.toFloat() / w.length >= 0.60f
         }
-        return cleanEnglishWords >= 2 && cleanEnglishWords.toFloat() / words.size >= 0.5f
+        return cleanEnglishWords >= 2 && cleanEnglishWords.toFloat() / words.size >= 0.45f
     }
 
     private fun shouldProcessNewSubtitle(text: String): Boolean {
@@ -502,7 +555,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         if (aWords.isEmpty() || bWords.isEmpty()) return false
         val intersection = aWords.intersect(bWords).size
         val union = aWords.union(bWords).size
-        return intersection.toFloat() / union.toFloat() >= 0.78f
+        return intersection.toFloat() / union.toFloat() >= 0.75f
     }
 
     private suspend fun translateAndDub(englishText: String) {
@@ -522,11 +575,10 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
                 binding.tvAudioModeHint.text = "แปล: ${GeminiClient.lastUsedEngine}"
             }
 
+            // Enqueue via Smart Speech Queue: never cuts off current sentence, max 1 waiting line
             if (prefs.autoDubEnabled && !prefs.isMutedSubOnly) {
-                ttsJob?.cancel()
-                ttsJob = lifecycleScope.launch {
-                    val used = voiceRouter.speak(thaiText)
-                    withContext(Dispatchers.Main) {
+                voiceRouter.enqueueSpeak(thaiText) { used ->
+                    runOnUiThread {
                         binding.tvAudioModeHint.text = "แปล: ${GeminiClient.lastUsedEngine} · เสียง: $used"
                     }
                 }
@@ -586,7 +638,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         val engineLabel = when (prefs.voiceEngine) {
             "gemini" -> "Gemini TTS (${prefs.geminiTtsVoice})"
             "elevenlabs" -> "ElevenLabs"
-            else -> "Android TTS"
+            else -> "Android TTS (1.22x)"
         }
 
         binding.tvAudioModeHint.text = when {
@@ -611,16 +663,16 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         chiakiSession?.setSurface(surf)
     }
 
-    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
+    override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {}
 
-    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+    override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
         chiakiSession?.setSurface(null)
         streamSurface?.release()
         streamSurface = null
         return true
     }
 
-    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+    override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) {}
 
     override fun onDestroy() {
         stopActiveSource()

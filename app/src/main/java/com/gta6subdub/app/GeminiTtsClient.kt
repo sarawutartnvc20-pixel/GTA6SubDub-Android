@@ -8,8 +8,11 @@ import android.media.AudioManager
 import android.media.AudioTrack
 import android.media.MediaPlayer
 import android.util.Base64
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -20,9 +23,10 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 object GeminiTtsClient {
+    // Prioritize faster lite-tts first for lower real-time latency, then full 3.8-flash-tts
     private val ttsModels = listOf(
-        "gemini-3.8-flash-tts",
-        "gemini-3.8-flash-lite-tts"
+        "gemini-3.8-flash-lite-tts",
+        "gemini-3.8-flash-tts"
     )
     private const val SAMPLE_RATE = 24000
 
@@ -37,6 +41,8 @@ object GeminiTtsClient {
     @Volatile
     private var currentPlayer: MediaPlayer? = null
     private var focusRequest: AudioFocusRequest? = null
+    @Volatile
+    private var activeCompletion: CompletableDeferred<Unit>? = null
 
     suspend fun synthesizeAndPlay(
         context: Context,
@@ -64,7 +70,7 @@ object GeminiTtsClient {
         }
 
         val styledText =
-            "Read aloud naturally in raw, expressive Thai street-talk like a GTA game character (read only the Thai text): $thaiText"
+            "Read aloud naturally and briskly in raw, expressive Thai street-talk like a GTA character (read only the Thai text): $thaiText"
 
         val payload = JSONObject().apply {
             put(
@@ -95,11 +101,11 @@ object GeminiTtsClient {
             )
         }
 
-        var lastError: Exception? = null
+        var primaryError: Exception? = null
         var decodedAudio: ByteArray? = null
         var mimeType = ""
 
-        for (model in ttsModels) {
+        for ((idx, model) in ttsModels.withIndex()) {
             val url =
                 "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$safeKey"
             val request = Request.Builder()
@@ -110,8 +116,8 @@ object GeminiTtsClient {
             try {
                 client.newCall(request).execute().use { resp ->
                     val bodyStr = resp.body?.string().orEmpty()
-                    if (resp.code == 404) {
-                        lastError = IllegalStateException("Model $model not found (404)")
+                    if (resp.code == 404 || resp.code == 429) {
+                        if (idx == 0) primaryError = IllegalStateException("Gemini TTS ($model ${resp.code})")
                         return@use
                     }
                     if (!resp.isSuccessful) {
@@ -137,12 +143,12 @@ object GeminiTtsClient {
                 }
                 if (decodedAudio != null) break
             } catch (e: Exception) {
-                lastError = e
+                if (idx == 0) primaryError = e
             }
         }
 
         val audioBytes = decodedAudio
-            ?: throw (lastError ?: IllegalStateException("ไม่พบข้อมูลเสียงจาก Gemini TTS"))
+            ?: throw (primaryError ?: IllegalStateException("ไม่พบข้อมูลเสียงจาก Gemini TTS"))
 
         val isWavOrEncoded = isRiffWav(audioBytes) ||
             mimeType.contains("wav", ignoreCase = true) ||
@@ -150,9 +156,9 @@ object GeminiTtsClient {
             mimeType.contains("ogg", ignoreCase = true)
 
         if (isWavOrEncoded) {
-            playEncodedAudio(context, audioBytes)
+            playEncodedAudioAndWait(context, audioBytes)
         } else {
-            playPcm24k(context, audioBytes)
+            playPcm24kAndWait(context, audioBytes)
         }
     }
 
@@ -164,12 +170,14 @@ object GeminiTtsClient {
             bytes[3] == 'F'.code.toByte()
     }
 
-    private suspend fun playEncodedAudio(context: Context, audioBytes: ByteArray) {
+    private suspend fun playEncodedAudioAndWait(context: Context, audioBytes: ByteArray) {
         val outFile = File(context.cacheDir, "gemini_tts_latest.wav")
         outFile.writeBytes(audioBytes)
 
+        val done = CompletableDeferred<Unit>()
         withContext(Dispatchers.Main) {
             stopPlayback(context)
+            activeCompletion = done
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             val attrs = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -188,6 +196,12 @@ object GeminiTtsClient {
                     setVolume(1.0f, 1.0f)
                     setOnCompletionListener {
                         focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+                        done.complete(Unit)
+                    }
+                    setOnErrorListener { _, _, _ ->
+                        focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+                        done.complete(Unit)
+                        true
                     }
                     prepare()
                     start()
@@ -195,11 +209,15 @@ object GeminiTtsClient {
             } catch (e: Exception) {
                 e.printStackTrace()
                 stopPlayback(context)
+                done.complete(Unit)
             }
+        }
+        withTimeoutOrNull(12000L) {
+            done.await()
         }
     }
 
-    private fun playPcm24k(context: Context, pcmBytes: ByteArray) {
+    private suspend fun playPcm24kAndWait(context: Context, pcmBytes: ByteArray) {
         if (pcmBytes.isEmpty()) return
         stopPlayback(context)
 
@@ -239,6 +257,9 @@ object GeminiTtsClient {
             track.setVolume(AudioTrack.getMaxVolume())
             track.write(pcmBytes, 0, pcmBytes.size)
             track.play()
+            // Wait for PCM duration (24kHz * 2 bytes/sample = 48,000 bytes/sec)
+            val durationMs = ((pcmBytes.size.toLong() * 1000L) / (SAMPLE_RATE * 2L)).coerceIn(250L, 10000L)
+            delay(durationMs + 80L)
         } catch (e: Exception) {
             e.printStackTrace()
             stopPlayback(context)
@@ -246,6 +267,8 @@ object GeminiTtsClient {
     }
 
     fun stopPlayback(context: Context) {
+        activeCompletion?.complete(Unit)
+        activeCompletion = null
         try {
             currentTrack?.stop()
             currentTrack?.release()

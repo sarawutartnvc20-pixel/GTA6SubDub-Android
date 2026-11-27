@@ -1,10 +1,63 @@
 package com.gta6subdub.app
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
+/**
+ * Smart Speech Queue:
+ * - Never cuts off the currently playing sentence mid-word.
+ * - Keeps at most 1 pending next sentence (latest wins), so audio never falls
+ *   multiple sentences behind live gameplay.
+ */
 class VoiceRouter(private val context: Context) {
     private val prefs = PrefsStore(context)
     private val androidTts = AndroidTtsSpeaker(context)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val queueLock = Any()
+    private var pendingText: String? = null
+    private var pendingCallback: ((String) -> Unit)? = null
+    private var workerJob: Job? = null
+
+    fun enqueueSpeak(thaiText: String, onEngineUsed: ((String) -> Unit)? = null) {
+        if (thaiText.isBlank()) return
+        if (!prefs.autoDubEnabled || prefs.isMutedSubOnly) return
+
+        synchronized(queueLock) {
+            // Overwrite any older waiting sentence so queue depth never exceeds 1
+            pendingText = thaiText
+            pendingCallback = onEngineUsed
+            if (workerJob?.isActive != true) {
+                workerJob = scope.launch {
+                    drainQueue()
+                }
+            }
+        }
+    }
+
+    private suspend fun drainQueue() {
+        while (true) {
+            val nextPair: Pair<String, ((String) -> Unit)?>? = synchronized(queueLock) {
+                val text = pendingText
+                val cb = pendingCallback
+                pendingText = null
+                pendingCallback = null
+                if (text == null) null else (text to cb)
+            }
+            if (nextPair == null) break
+
+            val (text, callback) = nextPair
+            if (!prefs.autoDubEnabled || prefs.isMutedSubOnly) break
+
+            val used = speak(text, forceEvenIfMuted = false)
+            callback?.invoke(used)
+        }
+    }
 
     suspend fun speak(thaiText: String, forceEvenIfMuted: Boolean = false): String {
         if (thaiText.isBlank()) return "empty"
@@ -26,11 +79,11 @@ class VoiceRouter(private val context: Context) {
                         "Gemini TTS (${prefs.geminiTtsVoice})"
                     } catch (e: Exception) {
                         e.printStackTrace()
-                        androidTts.speak(thaiText)
-                        "Android TTS (สำรอง: ${e.message?.take(36)})"
+                        androidTts.speakAndWait(thaiText)
+                        "Android TTS (สำรอง: ${e.message?.take(32)})"
                     }
                 } else {
-                    androidTts.speak(thaiText)
+                    androidTts.speakAndWait(thaiText)
                     "Android TTS (ยังไม่ได้ใส่ Gemini Key)"
                 }
             }
@@ -53,27 +106,33 @@ class VoiceRouter(private val context: Context) {
                         if (gKey.isNotEmpty()) {
                             try {
                                 GeminiTtsClient.synthesizeAndPlay(context, thaiText, gKey, prefs.geminiTtsVoice)
-                                return "Gemini TTS (สำรองหลัง ElevenLabs error)"
+                                return "Gemini TTS (สำรอง)"
                             } catch (_: Exception) {
                             }
                         }
-                        androidTts.speak(thaiText)
+                        androidTts.speakAndWait(thaiText)
                         "Android TTS (สำรอง)"
                     }
                 } else {
-                    androidTts.speak(thaiText)
+                    androidTts.speakAndWait(thaiText)
                     "Android TTS (ยังไม่ได้ใส่ ElevenLabs Key)"
                 }
             }
 
             else -> {
-                androidTts.speak(thaiText)
-                "Android TTS (ฟรีในเครื่อง)"
+                androidTts.speakAndWait(thaiText)
+                "Android TTS (ฟรีในเครื่อง 1.22x)"
             }
         }
     }
 
     fun stopAll() {
+        synchronized(queueLock) {
+            pendingText = null
+            pendingCallback = null
+            workerJob?.cancel()
+            workerJob = null
+        }
         GeminiTtsClient.stopPlayback(context)
         ElevenLabsClient.stopPlayback(context)
         androidTts.stop()
@@ -81,6 +140,7 @@ class VoiceRouter(private val context: Context) {
 
     fun shutdown() {
         stopAll()
+        scope.cancel()
         androidTts.shutdown()
     }
 }
