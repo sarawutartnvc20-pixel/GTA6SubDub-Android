@@ -17,15 +17,15 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var voiceRouter: VoiceRouter
 
     private val geminiModels = listOf(
-        "gemini-3.8-flash",
         "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
         "gemini-3.8-pro",
         "custom"
     )
     private val geminiModelLabels = listOf(
-        "gemini-3.8-flash (ดีที่สุด + เร็ว — แนะนำ)",
-        "gemini-3.1-flash-lite (เร็วสุด + ใช้ฟรีได้ดี)",
-        "gemini-3.8-pro (แปลสแลงแม่นสุด — ช้ากว่าเล็กน้อย)",
+        "gemini-3.1-flash-lite (เร็วสุด + โควต้าฟรีเยอะ — แนะนำเล่นสด)",
+        "gemini-3.8-flash (แปลสแลงดีสุด — ฟรีจำกัด 20 ครั้ง/วัน)",
+        "gemini-3.8-pro (แปลละเอียดสุด — ช้ากว่าเล็กน้อย)",
         "กำหนดเอง (พิมพ์ชื่อโมเดลเอง)"
     )
 

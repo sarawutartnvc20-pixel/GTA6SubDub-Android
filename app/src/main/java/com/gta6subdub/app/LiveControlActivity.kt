@@ -11,6 +11,7 @@ import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
@@ -155,6 +156,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         val isCamera = prefs.captureMode == "camera"
         binding.btnSwitchSource.text = if (isCamera) "โหมด: กล้อง" else "โหมด: PS5"
         binding.tvQualityBadge.text = if (isCamera) "CAM" else prefs.ps5Resolution
+        binding.cameraScanGuide.visibility = if (isCamera) View.VISIBLE else View.GONE
         if (!isRunning) {
             binding.tvVideoPlaceholder.text = if (isCamera) {
                 "โหมดกล้องส่องทีวี: กด ▶ เริ่ม แล้วหันกล้องส่องซับไตเติลบนทีวี"
@@ -330,6 +332,14 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
 
                     val requestBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
                     requestBuilder.addTarget(previewSurface)
+                    requestBuilder.set(
+                        CaptureRequest.CONTROL_AF_MODE,
+                        CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
+                    )
+                    requestBuilder.set(
+                        CaptureRequest.CONTROL_AE_MODE,
+                        CaptureRequest.CONTROL_AE_MODE_ON
+                    )
 
                     @Suppress("DEPRECATION")
                     camera.createCaptureSession(
@@ -341,7 +351,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
                                     session.setRepeatingRequest(requestBuilder.build(), null, cameraHandler)
                                     isRunning = true
                                     ocrHandler.removeCallbacks(ocrLoopRunnable)
-                                    ocrHandler.postDelayed(ocrLoopRunnable, 800L)
+                                    ocrHandler.postDelayed(ocrLoopRunnable, 600L)
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                 }
@@ -391,6 +401,8 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
 
     // MARK: - OCR -> Gemini (GTA 6 Slang Pack) -> VoiceRouter (Gemini TTS / ElevenLabs / Android)
 
+    private var pendingCandidateText = ""
+
     private fun captureFrameAndRunOcr() {
         if (isOcrBusy || !binding.texturePs5Stream.isAvailable) return
         val fullBitmap = binding.texturePs5Stream.bitmap ?: return
@@ -400,7 +412,8 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         }
 
         isOcrBusy = true
-        val cropTop = (fullBitmap.height * 0.62f).toInt().coerceIn(0, fullBitmap.height - 1)
+        // Crop bottom 32% (subtitle strip) so menus/logos above don't trigger OCR
+        val cropTop = (fullBitmap.height * 0.68f).toInt().coerceIn(0, fullBitmap.height - 1)
         val cropHeight = (fullBitmap.height - cropTop).coerceAtLeast(1)
         val cropped = Bitmap.createBitmap(fullBitmap, 0, cropTop, fullBitmap.width, cropHeight)
         fullBitmap.recycle()
@@ -413,11 +426,25 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
                     .replace(Regex("\\s+"), " ")
                     .trim()
 
+                if (!isLikelyEnglishSubtitle(normalized)) {
+                    pendingCandidateText = ""
+                    isOcrBusy = false
+                    return@addOnSuccessListener
+                }
+
                 if (!shouldProcessNewSubtitle(normalized)) {
                     isOcrBusy = false
                     return@addOnSuccessListener
                 }
 
+                // Require 2 consecutive matching frames so fading/changing text doesn't waste API quota
+                if (!isSimilarText(pendingCandidateText, normalized)) {
+                    pendingCandidateText = normalized
+                    isOcrBusy = false
+                    return@addOnSuccessListener
+                }
+
+                pendingCandidateText = ""
                 lastRecognizedText = normalized
                 lastApiCallMs = System.currentTimeMillis()
                 binding.tvLiveEnglish.text = "EN: $normalized"
@@ -433,29 +460,49 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
             }
     }
 
-    private fun shouldProcessNewSubtitle(text: String): Boolean {
+    /**
+     * Rejects garbled Thai-menu misreads (e.g. "YŠo 1isoJðu"), URLs, and ALL-CAPS HUD legends
+     * so we never waste Gemini Free Tier quota on non-subtitle screens.
+     */
+    private fun isLikelyEnglishSubtitle(text: String): Boolean {
         if (text.length < 6) return false
-        if (text.equals(lastRecognizedText, ignoreCase = true)) return false
+        val lower = text.lowercase()
+        if (lower.contains("http") || lower.contains("www.") || lower.contains(".net") ||
+            lower.contains(".com") || lower.contains("remoteplay") || lower.contains("playstation")
+        ) {
+            return false
+        }
 
-        // Ignore ALL-CAPS HUD prompts / button legends (e.g., "SELECT BACK O", "OTRENTSID)")
+        // Reject garbled non-ASCII diacritics (from Latin OCR misreading Thai menus)
+        val asciiCount = text.count { it.code in 32..126 }
+        if (asciiCount.toFloat() / text.length < 0.92f) return false
+
+        // Real game subtitles are mixed-case sentences with at least 2 clean English words
         val hasLowercase = text.any { it in 'a'..'z' }
-        val wordCount = text.split(" ").count { word -> word.count { it.isLetter() } >= 2 }
-        if (!hasLowercase || wordCount < 2) {
-            return false
-        }
+        if (!hasLowercase) return false
 
-        val elapsed = System.currentTimeMillis() - lastApiCallMs
-        if (elapsed < 1500L && isMinorFlicker(lastRecognizedText, text)) {
-            return false
+        val words = text.split(" ").filter { it.isNotBlank() }
+        val cleanEnglishWords = words.count { w ->
+            val letters = w.count { it in 'A'..'Z' || it in 'a'..'z' }
+            letters >= 2 && letters.toFloat() / w.length >= 0.65f
         }
+        return cleanEnglishWords >= 2 && cleanEnglishWords.toFloat() / words.size >= 0.5f
+    }
+
+    private fun shouldProcessNewSubtitle(text: String): Boolean {
+        if (text.equals(lastRecognizedText, ignoreCase = true)) return false
+        if (isSimilarText(lastRecognizedText, text)) return false
         return true
     }
 
-    private fun isMinorFlicker(old: String, new: String): Boolean {
-        if (old.isEmpty()) return false
-        val oldL = old.lowercase()
-        val newL = new.lowercase()
-        return (oldL.contains(newL) || newL.contains(oldL)) && abs(oldL.length - newL.length) <= 3
+    private fun isSimilarText(a: String, b: String): Boolean {
+        if (a.isEmpty() || b.isEmpty()) return false
+        val aWords = a.lowercase().split(" ").filter { it.length >= 2 }.toSet()
+        val bWords = b.lowercase().split(" ").filter { it.length >= 2 }.toSet()
+        if (aWords.isEmpty() || bWords.isEmpty()) return false
+        val intersection = aWords.intersect(bWords).size
+        val union = aWords.union(bWords).size
+        return intersection.toFloat() / union.toFloat() >= 0.78f
     }
 
     private suspend fun translateAndDub(englishText: String) {
@@ -472,6 +519,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
             )
             withContext(Dispatchers.Main) {
                 binding.tvLiveThai.text = thaiText
+                binding.tvAudioModeHint.text = "แปล: ${GeminiClient.lastUsedEngine}"
             }
 
             if (prefs.autoDubEnabled && !prefs.isMutedSubOnly) {
@@ -479,7 +527,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
                 ttsJob = lifecycleScope.launch {
                     val used = voiceRouter.speak(thaiText)
                     withContext(Dispatchers.Main) {
-                        binding.tvAudioModeHint.text = "เสียงล่าสุด: $used"
+                        binding.tvAudioModeHint.text = "แปล: ${GeminiClient.lastUsedEngine} · เสียง: $used"
                     }
                 }
             }

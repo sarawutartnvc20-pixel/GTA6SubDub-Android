@@ -162,6 +162,15 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
 
+            <!-- Shown ONLY in Camera mode so user knows where to aim at TV subtitles -->
+            <View
+                android:id="@+id/cameraScanGuide"
+                android:layout_width="match_parent"
+                android:layout_height="76dp"
+                android:layout_gravity="bottom"
+                android:background="#20FFEB5A"
+                android:visibility="gone" />
+
             <TextView
                 android:id="@+id/tvVideoPlaceholder"
                 android:layout_width="match_parent"
