@@ -145,91 +145,106 @@ class SubtitleCaptureService : Service() {
 
         // Required on Android 14+ (API 34+) before calling createVirtualDisplay
         projection?.registerCallback(projectionCallback, captureHandler)
-        setupVirtualDisplay()
+        captureHandler?.post { setupVirtualDisplay() }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         if (isRunning && mediaProjection != null) {
-            setupVirtualDisplay()
+            captureHandler?.post { setupVirtualDisplay() }
         }
     }
 
+    private var hasReceivedFirstFrame = false
+
     private fun setupVirtualDisplay() {
-        virtualDisplay?.release()
-        imageReader?.close()
+        try {
+            virtualDisplay?.release()
+            imageReader?.close()
 
-        val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        windowManager.defaultDisplay.getRealMetrics(metrics)
+            val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            val metrics = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
 
-        val width = (metrics.widthPixels * 0.75f).toInt().coerceAtLeast(640)
-        val height = (metrics.heightPixels * 0.75f).toInt().coerceAtLeast(480)
-        val density = metrics.densityDpi
+            val width = (metrics.widthPixels * 0.75f).toInt().coerceAtLeast(640)
+            val height = (metrics.heightPixels * 0.75f).toInt().coerceAtLeast(480)
+            val density = metrics.densityDpi
 
-        val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-        imageReader = reader
+            val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+            imageReader = reader
 
-        reader.setOnImageAvailableListener({ r ->
-            val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
-            val now = System.currentTimeMillis()
-            if (isProcessingFrame || now - lastFrameTimestampMs < minFrameIntervalMs) {
-                image.close()
-                return@setOnImageAvailableListener
-            }
-
-            isProcessingFrame = true
-            lastFrameTimestampMs = now
-
-            try {
-                val plane = image.planes[0]
-                val buffer = plane.buffer
-                val pixelStride = plane.pixelStride
-                val rowStride = plane.rowStride
-                val rowPadding = rowStride - pixelStride * width
-
-                val fullBitmap = Bitmap.createBitmap(
-                    width + rowPadding / pixelStride,
-                    height,
-                    Bitmap.Config.ARGB_8888
-                )
-                fullBitmap.copyPixelsFromBuffer(buffer)
-                image.close()
-
-                val isPortrait = height >= width
-                val cropTop = if (isPortrait) {
-                    (height * 0.28f).toInt().coerceIn(0, height - 1)
-                } else {
-                    (height * 0.58f).toInt().coerceIn(0, height - 1)
+            reader.setOnImageAvailableListener({ r ->
+                val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+                val now = System.currentTimeMillis()
+                if (isProcessingFrame || now - lastFrameTimestampMs < minFrameIntervalMs) {
+                    image.close()
+                    return@setOnImageAvailableListener
                 }
-                val cropBottom = if (isPortrait) {
-                    (height * 0.85f).toInt().coerceIn(cropTop + 1, height)
-                } else {
-                    height
+
+                if (!hasReceivedFirstFrame) {
+                    hasReceivedFirstFrame = true
+                    overlay.updateText("กำลังอ่านซับไตเติล...")
                 }
-                val cropHeight = (cropBottom - cropTop).coerceAtLeast(1)
-                val croppedBitmap = Bitmap.createBitmap(fullBitmap, 0, cropTop, width, cropHeight)
-                fullBitmap.recycle()
 
-                runOcr(croppedBitmap)
-            } catch (e: Exception) {
-                e.printStackTrace()
-                image.close()
-                isProcessingFrame = false
-            }
-        }, captureHandler)
+                isProcessingFrame = true
+                lastFrameTimestampMs = now
 
-        virtualDisplay = mediaProjection?.createVirtualDisplay(
-            "GTA6SubDubCapture",
-            width,
-            height,
-            density,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            reader.surface,
-            null,
-            captureHandler
-        )
+                try {
+                    val imgWidth = image.width
+                    val imgHeight = image.height
+                    val plane = image.planes[0]
+                    val buffer = plane.buffer
+                    val pixelStride = plane.pixelStride
+                    val rowStride = plane.rowStride
+                    val rowPadding = (rowStride - pixelStride * imgWidth).coerceAtLeast(0)
+
+                    val fullBitmap = Bitmap.createBitmap(
+                        imgWidth + rowPadding / pixelStride,
+                        imgHeight,
+                        Bitmap.Config.ARGB_8888
+                    )
+                    fullBitmap.copyPixelsFromBuffer(buffer)
+                    image.close()
+
+                    val isPortrait = imgHeight >= imgWidth
+                    val cropTop = if (isPortrait) {
+                        (imgHeight * 0.28f).toInt().coerceIn(0, imgHeight - 1)
+                    } else {
+                        (imgHeight * 0.58f).toInt().coerceIn(0, imgHeight - 1)
+                    }
+                    val cropBottom = if (isPortrait) {
+                        (imgHeight * 0.85f).toInt().coerceIn(cropTop + 1, imgHeight)
+                    } else {
+                        imgHeight
+                    }
+                    val cropHeight = (cropBottom - cropTop).coerceAtLeast(1)
+                    val croppedBitmap = Bitmap.createBitmap(fullBitmap, 0, cropTop, imgWidth, cropHeight)
+                    fullBitmap.recycle()
+
+                    runOcr(croppedBitmap)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    image.close()
+                    isProcessingFrame = false
+                }
+            }, captureHandler)
+
+            virtualDisplay = mediaProjection?.createVirtualDisplay(
+                "GTA6SubDubCapture",
+                width,
+                height,
+                density,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                reader.surface,
+                null,
+                captureHandler
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            overlay.updateText("Capture Error: ${e.message}")
+            SubtitleStateBus.updateThaiOnly("Capture Error: ${e.message}")
+        }
     }
 
     private fun runOcr(bitmap: Bitmap) {
