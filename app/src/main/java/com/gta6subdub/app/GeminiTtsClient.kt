@@ -22,8 +22,7 @@ import java.util.concurrent.TimeUnit
 object GeminiTtsClient {
     private val ttsModels = listOf(
         "gemini-3.8-flash-tts",
-        "gemini-3.8-flash-lite-tts",
-        "gemini-2.5-flash-preview-tts"
+        "gemini-3.8-flash-lite-tts"
     )
     private const val SAMPLE_RATE = 24000
 

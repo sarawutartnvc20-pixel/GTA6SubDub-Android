@@ -13,12 +13,21 @@ class PrefsStore(context: Context) {
     var geminiModel: String
         get() {
             val saved = prefs.getString("gemini_model", "gemini-3.8-flash")?.trim().orEmpty()
-            return if (saved.isEmpty() || saved == "gemini-2.5-flash") "gemini-3.8-flash" else saved
+            return when {
+                saved.isEmpty() || saved == "gemini-2.5-flash" || saved == "gemini-2.0-flash" -> "gemini-3.8-flash"
+                saved == "gemini-3.8-flash-lite" || saved == "gemini-2.5-flash-lite" -> "gemini-3.1-flash-lite"
+                else -> saved
+            }
         }
         set(value) = prefs.edit().putString(
             "gemini_model",
             value.trim().ifEmpty { "gemini-3.8-flash" }
         ).apply()
+
+    // PS5 Remote Play resolution: "360p", "540p", "720p", "1080p"
+    var ps5Resolution: String
+        get() = prefs.getString("ps5_resolution", "720p") ?: "720p"
+        set(value) = prefs.edit().putString("ps5_resolution", value).apply()
 
     // Voice engine: "gemini", "elevenlabs", or "android"
     var voiceEngine: String

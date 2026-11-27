@@ -18,18 +18,14 @@ class SettingsActivity : AppCompatActivity() {
 
     private val geminiModels = listOf(
         "gemini-3.8-flash",
-        "gemini-3.8-flash-lite",
+        "gemini-3.1-flash-lite",
         "gemini-3.8-pro",
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash",
         "custom"
     )
     private val geminiModelLabels = listOf(
         "gemini-3.8-flash (ดีที่สุด + เร็ว — แนะนำ)",
-        "gemini-3.8-flash-lite (เร็วสุด + ใช้ฟรีได้ดี)",
+        "gemini-3.1-flash-lite (เร็วสุด + ใช้ฟรีได้ดี)",
         "gemini-3.8-pro (แปลสแลงแม่นสุด — ช้ากว่าเล็กน้อย)",
-        "gemini-2.5-flash-lite (รุ่นเบา สำรองฟรี)",
-        "gemini-2.0-flash (รุ่นเสถียร สำรอง)",
         "กำหนดเอง (พิมพ์ชื่อโมเดลเอง)"
     )
 
@@ -55,8 +51,10 @@ class SettingsActivity : AppCompatActivity() {
         binding.etVoiceId.setText(prefs.elevenLabsVoiceId)
         binding.switchAutoDub.isChecked = prefs.autoDubEnabled
 
-        // Setup Model Dropdown
-        val modelAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, geminiModelLabels)
+        // White-text dark-theme Model Dropdown
+        val modelAdapter = ArrayAdapter(this, R.layout.spinner_item_white, geminiModelLabels).apply {
+            setDropDownViewResource(R.layout.spinner_dropdown_white)
+        }
         binding.spinnerGeminiModel.adapter = modelAdapter
         val savedModel = prefs.geminiModel
         val modelIdx = geminiModels.indexOf(savedModel)
@@ -82,13 +80,21 @@ class SettingsActivity : AppCompatActivity() {
             "android" -> binding.rbVoiceAndroid.isChecked = true
             else -> binding.rbVoiceGemini.isChecked = true
         }
+        updateVoiceSectionVisibility()
 
-        val voiceAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, geminiVoiceLabels)
+        binding.rgVoiceEngine.setOnCheckedChangeListener { _, _ ->
+            updateVoiceSectionVisibility()
+        }
+
+        // White-text dark-theme Gemini Voice Dropdown
+        val voiceAdapter = ArrayAdapter(this, R.layout.spinner_item_white, geminiVoiceLabels).apply {
+            setDropDownViewResource(R.layout.spinner_dropdown_white)
+        }
         binding.spinnerGeminiVoice.adapter = voiceAdapter
         val idx = geminiVoices.indexOf(prefs.geminiTtsVoice).coerceAtLeast(0)
         binding.spinnerGeminiVoice.setSelection(idx)
 
-        // Test BOTH Gemini translation AND Voice Dubbing in 1 tap!
+        // Test BOTH Gemini translation AND Voice Dubbing in 1 tap
         binding.btnTestVoice.setOnClickListener {
             saveOnly()
             if (prefs.geminiApiKey.isEmpty()) {
@@ -114,7 +120,7 @@ class SettingsActivity : AppCompatActivity() {
                         Toast.LENGTH_LONG
                     ).show()
                 } catch (e: Exception) {
-                    binding.btnTestVoice.text = "🔊 ทดสอบเสียงพากย์ (ประโยค GTA 6)"
+                    binding.btnTestVoice.text = "🔊 ทดสอบแปล + พากย์เสียง (ประโยค GTA 6)"
                     Toast.makeText(
                         this@SettingsActivity,
                         "ทดสอบไม่สำเร็จ: ${e.message}",
@@ -133,6 +139,23 @@ class SettingsActivity : AppCompatActivity() {
         binding.btnDoneSettings.setOnClickListener {
             saveOnly()
             finish()
+        }
+    }
+
+    private fun updateVoiceSectionVisibility() {
+        when (binding.rgVoiceEngine.checkedRadioButtonId) {
+            R.id.rbVoiceGemini -> {
+                binding.layoutGeminiVoiceBox.visibility = View.VISIBLE
+                binding.layoutElevenLabsBox.visibility = View.GONE
+            }
+            R.id.rbVoiceElevenLabs -> {
+                binding.layoutGeminiVoiceBox.visibility = View.GONE
+                binding.layoutElevenLabsBox.visibility = View.VISIBLE
+            }
+            else -> {
+                binding.layoutGeminiVoiceBox.visibility = View.GONE
+                binding.layoutElevenLabsBox.visibility = View.GONE
+            }
         }
     }
 

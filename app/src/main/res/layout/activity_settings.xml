@@ -80,17 +80,17 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
-                android:text="เลือกโมเดลแปลซับ (เรียงจากดีสุด → ประหยัด/ฟรี):"
+                android:text="เลือกโมเดลแปลซับ (ดีที่สุด → ประหยัด/ฟรี):"
                 android:textColor="#A79CB8"
                 android:textSize="12sp" />
 
             <Spinner
                 android:id="@+id/spinnerGeminiModel"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
+                android:layout_height="46dp"
                 android:layout_marginTop="4dp"
                 android:background="@drawable/bg_pill_dark"
-                android:paddingHorizontal="12dp" />
+                android:paddingHorizontal="14dp" />
 
             <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/tilCustomModel"
@@ -128,11 +128,20 @@
                 android:textSize="15sp"
                 android:textStyle="bold" />
 
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchAutoDub"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:checked="true"
+                android:text="เปิดพากย์เสียงภาษาไทยอัตโนมัติ"
+                android:textColor="#FFFFFF" />
+
             <RadioGroup
                 android:id="@+id/rgVoiceEngine"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp">
+                android:layout_marginTop="6dp">
 
                 <RadioButton
                     android:id="@+id/rbVoiceGemini"
@@ -162,75 +171,81 @@
                     android:textSize="14sp" />
             </RadioGroup>
 
-            <!-- Gemini Voice Selector -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="เลือกโทนเสียง Gemini TTS:"
-                android:textColor="#A79CB8"
-                android:textSize="12sp" />
-
-            <Spinner
-                android:id="@+id/spinnerGeminiVoice"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:layout_marginTop="4dp"
-                android:background="@drawable/bg_pill_dark"
-                android:paddingHorizontal="12dp" />
-
-            <!-- ElevenLabs Credentials -->
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:hint="ElevenLabs API Key (ถ้าใช้ ElevenLabs)"
-                android:textColorHint="#A79CB8"
-                app:boxStrokeColor="#C94B94"
-                app:endIconMode="password_toggle"
-                app:endIconTint="#A79CB8">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etElevenKey"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="textPassword"
-                    android:textColor="#FFFFFF" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:hint="ElevenLabs Voice ID"
-                android:textColorHint="#A79CB8"
-                app:boxStrokeColor="#C94B94">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etVoiceId"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="text"
-                    android:textColor="#FFFFFF" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <com.google.android.material.materialswitch.MaterialSwitch
-                android:id="@+id/switchAutoDub"
+            <!-- Gemini Voice Selector Box (shown only when Gemini TTS selected) -->
+            <LinearLayout
+                android:id="@+id/layoutGeminiVoiceBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
-                android:checked="true"
-                android:text="เปิดพากย์เสียงภาษาไทยอัตโนมัติ"
-                android:textColor="#FFFFFF" />
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="เลือกโทนเสียง Gemini TTS:"
+                    android:textColor="#A79CB8"
+                    android:textSize="12sp" />
+
+                <Spinner
+                    android:id="@+id/spinnerGeminiVoice"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="4dp"
+                    android:background="@drawable/bg_pill_dark"
+                    android:paddingHorizontal="14dp" />
+            </LinearLayout>
+
+            <!-- ElevenLabs Credentials Box (shown only when ElevenLabs selected) -->
+            <LinearLayout
+                android:id="@+id/layoutElevenLabsBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="ElevenLabs API Key"
+                    android:textColorHint="#A79CB8"
+                    app:boxStrokeColor="#C94B94"
+                    app:endIconMode="password_toggle"
+                    app:endIconTint="#A79CB8">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etElevenKey"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textPassword"
+                        android:textColor="#FFFFFF" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:hint="ElevenLabs Voice ID"
+                    android:textColorHint="#A79CB8"
+                    app:boxStrokeColor="#C94B94">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etVoiceId"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="text"
+                        android:textColor="#FFFFFF" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/btnTestVoice"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:layout_marginTop="10dp"
+                android:layout_height="46dp"
+                android:layout_marginTop="14dp"
                 android:background="@drawable/bg_pill_dark"
                 android:gravity="center"
-                android:text="🔊 ทดสอบเสียงพากย์ (ประโยค GTA 6)"
+                android:text="🔊 ทดสอบแปล + พากย์เสียง (ประโยค GTA 6)"
                 android:textColor="#FFEB5A"
                 android:textSize="14sp"
                 android:textStyle="bold" />

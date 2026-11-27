@@ -109,9 +109,23 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
             refreshModeUI()
         }
 
+        binding.tvQualityBadge.setOnClickListener {
+            if (prefs.captureMode == "camera") return@setOnClickListener
+            val order = listOf("360p", "540p", "720p", "1080p")
+            val next = order[(order.indexOf(prefs.ps5Resolution) + 1) % order.size]
+            prefs.ps5Resolution = next
+            refreshModeUI()
+            Toast.makeText(
+                this,
+                "ปรับความละเอียด PS5 เป็น $next (กดหยุดแล้วเริ่มใหม่เพื่อให้มีผล)",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
         binding.btnMuteToggle.setOnClickListener {
             prefs.isMutedSubOnly = !prefs.isMutedSubOnly
             if (prefs.isMutedSubOnly) {
+                ttsJob?.cancel()
                 voiceRouter.stopAll()
             }
             refreshAudioButtons()
@@ -122,6 +136,7 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
             if (prefs.autoDubEnabled) {
                 prefs.isMutedSubOnly = false
             } else {
+                ttsJob?.cancel()
                 voiceRouter.stopAll()
             }
             refreshAudioButtons()
@@ -139,12 +154,12 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
     private fun refreshModeUI() {
         val isCamera = prefs.captureMode == "camera"
         binding.btnSwitchSource.text = if (isCamera) "โหมด: กล้อง" else "โหมด: PS5"
-        binding.tvQualityBadge.text = if (isCamera) "CAM" else "720p"
+        binding.tvQualityBadge.text = if (isCamera) "CAM" else prefs.ps5Resolution
         if (!isRunning) {
             binding.tvVideoPlaceholder.text = if (isCamera) {
                 "โหมดกล้องส่องทีวี: กด ▶ เริ่ม แล้วหันกล้องส่องซับไตเติลบนทีวี"
             } else {
-                "โหมด PS5 Remote: กด ▶ เริ่ม เพื่อเชื่อมภาพจาก PS5 (บัญชีที่ 2)"
+                "โหมด PS5 Remote (${prefs.ps5Resolution}): กด ▶ เริ่ม เพื่อเชื่อมภาพ\n(แตะปุ่ม ${prefs.ps5Resolution} ด้านล่างเพื่อปรับ 360p / 540p / 720p / 1080p)"
             }
         }
     }
@@ -197,11 +212,18 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
         try {
             updateStreamUI(true, "● กำลังเชื่อม PS5...")
             binding.tvVideoPlaceholder.visibility = View.GONE
-            binding.tvLiveThai.text = "กำลังเชื่อมต่อ PS5 (${prefs.ps5Host})..."
+            binding.tvLiveThai.text = "กำลังเชื่อมต่อ PS5 (${prefs.ps5Host} · ${prefs.ps5Resolution})..."
+
+            val (resPreset, fpsPreset) = when (prefs.ps5Resolution) {
+                "360p" -> VideoResolutionPreset.RES_360P to VideoFPSPreset.FPS_30
+                "540p" -> VideoResolutionPreset.RES_540P to VideoFPSPreset.FPS_30
+                "1080p" -> VideoResolutionPreset.RES_1080P to VideoFPSPreset.FPS_60
+                else -> VideoResolutionPreset.RES_720P to VideoFPSPreset.FPS_30
+            }
 
             val profile = ConnectVideoProfile.preset(
-                VideoResolutionPreset.RES_720P,
-                VideoFPSPreset.FPS_30,
+                resPreset,
+                fpsPreset,
                 Codec.CODEC_H264
             )
             val connectInfo = ConnectInfo(
@@ -223,7 +245,11 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
                         is QuitEvent -> {
                             val msg = event.reasonString ?: event.reason.toString()
                             stopActiveSource()
-                            binding.tvLiveThai.text = "หลุดการเชื่อมต่อ: $msg"
+                            binding.tvLiveThai.text = if (msg.contains("already in use", ignoreCase = true)) {
+                                "PS5 กำลังปิดการเชื่อมต่อเดิม รอ 10-15 วินาทีแล้วกด ▶ เริ่ม ใหม่ครับ"
+                            } else {
+                                "หลุดการเชื่อมต่อ: $msg"
+                            }
                         }
                         else -> {}
                     }
@@ -408,11 +434,18 @@ class LiveControlActivity : AppCompatActivity(), TextureView.SurfaceTextureListe
     }
 
     private fun shouldProcessNewSubtitle(text: String): Boolean {
-        if (text.length < 4) return false
+        if (text.length < 6) return false
         if (text.equals(lastRecognizedText, ignoreCase = true)) return false
 
+        // Ignore ALL-CAPS HUD prompts / button legends (e.g., "SELECT BACK O", "OTRENTSID)")
+        val hasLowercase = text.any { it in 'a'..'z' }
+        val wordCount = text.split(" ").count { word -> word.count { it.isLetter() } >= 2 }
+        if (!hasLowercase || wordCount < 2) {
+            return false
+        }
+
         val elapsed = System.currentTimeMillis() - lastApiCallMs
-        if (elapsed < 1200L && isMinorFlicker(lastRecognizedText, text)) {
+        if (elapsed < 1500L && isMinorFlicker(lastRecognizedText, text)) {
             return false
         }
         return true

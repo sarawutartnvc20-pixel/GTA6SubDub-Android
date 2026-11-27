@@ -19,11 +19,10 @@ object GeminiClient {
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    // Only verified live Gemini 3.x models (never deprecated 2.0/2.5 models)
     private val fallbackModels = listOf(
         "gemini-3.8-flash",
-        "gemini-3.8-flash-lite",
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash"
+        "gemini-3.1-flash-lite"
     )
 
     // Keeps last 3 dialogue turns so Gemini maintains pronoun & character context across lines
@@ -46,7 +45,11 @@ object GeminiClient {
         require(safeKey.isNotEmpty()) { "ยังไม่ได้ตั้งค่า Gemini API Key" }
 
         val preferred = model.trim().let {
-            if (it.isEmpty() || it == "gemini-2.5-flash") "gemini-3.8-flash" else it
+            when {
+                it.isEmpty() || it == "gemini-2.5-flash" || it == "gemini-2.0-flash" -> "gemini-3.8-flash"
+                it == "gemini-3.8-flash-lite" || it == "gemini-2.5-flash-lite" -> "gemini-3.1-flash-lite"
+                else -> it
+            }
         }
         val modelsToTry = (listOf(preferred) + fallbackModels).distinct()
 
@@ -64,8 +67,8 @@ object GeminiClient {
             append("แปลประโยคนี้:\n").append(englishText)
         }
 
-        var lastError: Exception? = null
-        for (candidateModel in modelsToTry) {
+        var primaryError: Exception? = null
+        for ((index, candidateModel) in modelsToTry.withIndex()) {
             try {
                 val result = callGenerateContent(
                     apiKey = safeKey,
@@ -80,8 +83,8 @@ object GeminiClient {
                 }
                 return@withContext result
             } catch (e: HttpStatusException) {
-                lastError = e
-                // If thinkingConfig isn't supported on this model (400), retry same model without thinkingConfig
+                if (index == 0) primaryError = e
+                // If thinkingConfig causes 400 on this model, retry same model without thinkingConfig
                 if (e.code == 400) {
                     try {
                         val retryResult = callGenerateContent(
@@ -97,19 +100,20 @@ object GeminiClient {
                         }
                         return@withContext retryResult
                     } catch (retryErr: Exception) {
-                        lastError = retryErr
+                        if (index == 0) primaryError = retryErr
                     }
                 }
                 if (e.code == 404 || e.code == 429) {
                     continue
                 }
             } catch (e: Exception) {
-                lastError = e
+                if (index == 0) primaryError = e
                 continue
             }
         }
 
-        throw (lastError ?: IllegalStateException("ไม่สามารถเชื่อมต่อ Gemini API ได้"))
+        // Always surface the primary model's real error rather than hiding it behind a fallback error
+        throw (primaryError ?: IllegalStateException("ไม่สามารถเชื่อมต่อ Gemini API ได้"))
     }
 
     private class HttpStatusException(val code: Int, message: String) : IllegalStateException(message)
@@ -142,14 +146,10 @@ object GeminiClient {
 
         val genConfig = JSONObject().apply {
             put("temperature", 0.45)
-            put("maxOutputTokens", 512)
-            if (useFastThinking) {
-                // Gemini 3+ uses thinkingLevel="MINIMAL"; Gemini 2.5 uses thinkingBudget=0
-                if (model.startsWith("gemini-3")) {
-                    put("thinkingConfig", JSONObject().put("thinkingLevel", "MINIMAL"))
-                } else if (model.startsWith("gemini-2.5")) {
-                    put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
-                }
+            put("maxOutputTokens", 2048)
+            if (useFastThinking && model.startsWith("gemini-3")) {
+                // Gemini 3.8 supports LOW / MEDIUM / HIGH (MINIMAL is deprecated and throws 400)
+                put("thinkingConfig", JSONObject().put("thinkingLevel", "LOW"))
             }
         }
 
@@ -184,7 +184,7 @@ object GeminiClient {
             if (!response.isSuccessful) {
                 throw HttpStatusException(
                     response.code,
-                    "Gemini API error (${response.code} / $model): $bodyStr"
+                    "Gemini API (${response.code} / $model): $bodyStr"
                 )
             }
 
@@ -203,7 +203,6 @@ object GeminiClient {
             val sb = StringBuilder()
             for (i in 0 until parts.length()) {
                 val part = parts.getJSONObject(i)
-                // Skip internal chain-of-thought parts if present on Gemini 3+
                 if (part.optBoolean("thought", false)) continue
                 sb.append(part.optString("text", ""))
             }
